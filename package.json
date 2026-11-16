@@ -1,0 +1,31 @@
+{
+  "name": "monorepo",
+  "private": true,
+  "packageManager": "bun@1.4.4",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test && bun test scripts",
+    "db:up": "docker compose up -d db",
+    "db:generate": "bun --cwd packages/data generate",
+    "db:migrate": "bun --cwd packages/data migrate",
+    "db:studio": "bun --cwd packages/data studio",
+    "new-service": "bun scripts/scaffold.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "oxlint": "1.93.0",
+    "turbo": "2.11.11",
+    "typescript": "6.0.3"
+  },
+  "trustedDependencies": [
+    "sharp",
+    "unrs-resolver"
+  ]
+}

@@ -1,0 +1,96 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Job id "build" is the required status check set by the platform ruleset.
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      services: ${{ steps.services.outputs.list }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run test
+      - id: services
+        run: echo "list=$(find apps -mindepth 2 -maxdepth 2 -name package.json -printf '%h\n' | cut -d/ -f2 | sort | jq -Rsc 'split("\n") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: build
+    if: needs.build.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJson(needs.build.outputs.services) }}
+    env:
+      IMAGE: ${{ vars.IMAGE_REPO }}/${{ matrix.service }}:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: |
+          dockerfile=Dockerfile
+          [ -f "apps/${{ matrix.service }}/Dockerfile" ] && dockerfile="apps/${{ matrix.service }}/Dockerfile"
+          docker build -f "$dockerfile" --build-arg SERVICE=${{ matrix.service }} -t "$IMAGE" .
+      - name: Authenticate to Google Cloud
+        if: github.event_name == 'push'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.WIF_PROVIDER }}
+          service_account: ${{ vars.CI_SA }}
+      - name: Push image
+        if: github.event_name == 'push'
+        run: |
+          gcloud auth configure-docker "${{ vars.GCP_REGION }}-docker.pkg.dev" --quiet
+          docker push "$IMAGE"
+
+  # One commit in the deployments repo for all services, so dev gets them together.
+  release:
+    needs: [build, image]
+    if: github.event_name == 'push' && needs.build.outputs.services != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      REPO: ${{ github.event.repository.name }}
+      SERVICES: ${{ join(fromJson(needs.build.outputs.services), ' ') }}
+      IMAGE_REPO: ${{ vars.IMAGE_REPO }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository_owner }}/deployments
+          ssh-key: ${{ secrets.DEPLOYMENTS_DEPLOY_KEY }}
+      - name: Bump dev images
+        run: |
+          git config user.name "ci-$REPO"
+          git config user.email "ci@users.noreply.github.com"
+          for _ in 1 2 3; do
+            git pull --rebase --quiet
+            for svc in $SERVICES; do
+              file="apps/$REPO/$svc/dev.yaml"
+              if [ ! -f "$file" ]; then echo "::warning::$file missing; add $svc to platform/apps.yaml"; continue; fi
+              IMAGE="$IMAGE_REPO/$svc:$GITHUB_SHA" yq -i '.spec.template.spec.containers[0].image = strenv(IMAGE)' "$file"
+            done
+            git commit -qam "Deploy $REPO dev: ${GITHUB_SHA::7}" || exit 0
+            git push --quiet && exit 0
+            git reset -q --hard origin/main
+          done
+          exit 1

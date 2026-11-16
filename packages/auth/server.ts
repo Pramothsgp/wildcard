@@ -1,0 +1,83 @@
+import { APIError, betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { nextCookies } from "better-auth/next-js";
+import { admin } from "better-auth/plugins";
+import { db } from "@repo/data";
+import * as schema from "@repo/data/schema";
+import { roleForNewUser } from "./roles.ts";
+
+export { roleForNewUser };
+export { toNextJsHandler } from "better-auth/next-js";
+
+/**
+ * One auth instance per app. Env:
+ *   BETTER_AUTH_URL     public URL of this app (also the only trusted origin)
+ *   BETTER_AUTH_SECRET  signing secret
+ *   ADMIN_EMAILS        comma-separated; these get the admin role, but only when the
+ *                       email is verified (Google sign-in). Password sign-up with one is refused.
+ *   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   optional; enables "Sign in with Google"
+ */
+function build(serviceName: string) {
+  const baseURL = process.env.BETTER_AUTH_URL;
+  const adminEmails = parseEmails(process.env.ADMIN_EMAILS);
+  const googleId = process.env.GOOGLE_CLIENT_ID;
+  const googleSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+  return betterAuth({
+    appName: serviceName,
+    baseURL,
+    secret: process.env.BETTER_AUTH_SECRET,
+    trustedOrigins: baseURL ? [baseURL] : [],
+    database: drizzleAdapter(db, { provider: "pg", schema }),
+    emailAndPassword: { enabled: true, minPasswordLength: 8 },
+    socialProviders:
+      googleId && googleSecret
+        ? { google: { clientId: googleId, clientSecret: googleSecret } }
+        : undefined,
+    plugins: [admin(), nextCookies()],
+    databaseHooks: {
+      user: {
+        create: {
+          before: async (user) => {
+            const role = roleForNewUser(user, adminEmails);
+            if (role === "refuse") {
+              throw new APIError("FORBIDDEN", {
+                message: "This email must sign in with Google.",
+              });
+            }
+            return { data: { ...user, role } };
+          },
+        },
+      },
+    },
+    // Each app on its own cookie, so two apps on one domain (e.g. localhost) don't collide.
+    advanced: { cookiePrefix: serviceName },
+  });
+}
+
+export type Auth = ReturnType<typeof build>;
+
+const instances = new Map<string, Auth>();
+
+/** Lazy, so `next build` works without runtime env. */
+export function getAuth(serviceName: string): Auth {
+  let auth = instances.get(serviceName);
+  if (!auth) {
+    auth = build(serviceName);
+    instances.set(serviceName, auth);
+  }
+  return auth;
+}
+
+export function googleEnabled() {
+  return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
+}
+
+function parseEmails(value: string | undefined) {
+  return new Set(
+    (value ?? "")
+      .split(",")
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}

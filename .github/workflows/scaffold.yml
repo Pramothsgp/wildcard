@@ -1,0 +1,35 @@
+name: scaffold
+
+# .platform/services is written by Terraform in the platform repo. When it lists a service
+# that has no apps/<name> folder yet, create it from starters/ and kick off CI.
+on:
+  push:
+    branches: [main]
+    paths: [".platform/services"]
+  workflow_dispatch:
+
+jobs:
+  scaffold:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun scripts/scaffold.ts --from .platform/services
+      - name: Commit new services
+        run: |
+          [ -z "$(git status --porcelain apps)" ] && { echo "nothing new"; exit 0; }
+          bun install
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps bun.lock
+          git commit -qm "Scaffold services from .platform/services"
+          git push --quiet
+          # Pushes made with GITHUB_TOKEN don't trigger workflows, so start CI explicitly.
+          gh workflow run ci.yml --ref main
