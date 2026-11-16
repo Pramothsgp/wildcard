@@ -12,7 +12,7 @@ starters/web|admin what new services are copied from
 
 ## Services
 
-Services come from `platform/apps.yaml`. Terraform writes them to `.platform/services`, and the `scaffold` workflow creates any missing `apps/<name>`. To try one locally without the platform: `bun run new-service <name> <web|admin>`.
+Services come from `platform/apps.yaml`. Terraform writes them to `.platform/services`, and the platform's terraform workflow creates any missing `apps/<name>` from `starters/`. To try one locally without the platform: `bun run new-service <name> <web|admin>`.
 
 ## Local development
 
