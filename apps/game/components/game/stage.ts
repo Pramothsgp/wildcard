@@ -3,6 +3,7 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { type ThemeId, themeOf } from "@/game/themes";
 import { type World, buildCity, buildFestival, buildSpace, buildTemple, glowDisc } from "./backdrops";
+import { buildHarvest, buildStadium } from "./backdrops-outdoor";
 
 /** Walnut grain for the table edge: dark streaks running around the circumference. */
 function woodTexture() {
@@ -127,7 +128,8 @@ export function buildStage(renderer: THREE.WebGLRenderer, scene: THREE.Scene) {
 
   // Worlds are built the first time a theme needs them, then kept and toggled.
   const builders: Record<string, () => World> = {
-    space: buildSpace, temple: buildTemple, city: buildCity, festival: () => buildFestival(false), snow: () => buildFestival(true),
+    space: buildSpace, temple: buildTemple, city: buildCity, harvest: buildHarvest, stadium: buildStadium,
+    festival: () => buildFestival("diwali"), snow: () => buildFestival("christmas"),
   };
   const worlds = new Map<string, World>();
   let world: World | null = null;

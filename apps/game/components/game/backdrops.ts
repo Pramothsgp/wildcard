@@ -19,7 +19,7 @@ export function glowDisc(color: string, size = 256) {
   return t;
 }
 
-const spriteMat = (map: THREE.Texture, opacity = 1) =>
+export const spriteMat = (map: THREE.Texture, opacity = 1) =>
   new THREE.SpriteMaterial({ map, transparent: true, opacity, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
 
 function starSprite() {
@@ -35,7 +35,7 @@ function starSprite() {
   return new THREE.CanvasTexture(c);
 }
 
-function stars(n: number, rMin: number, rMax: number, size: number, onlyUpper = false) {
+export function stars(n: number, rMin: number, rMax: number, size: number, onlyUpper = false) {
   const pos = new Float32Array(n * 3);
   const col = new Float32Array(n * 3);
   const tint = [new THREE.Color("#ffffff"), new THREE.Color("#cfe0ff"), new THREE.Color("#ffe6c4"), new THREE.Color("#ffd1e8")];
@@ -55,7 +55,7 @@ function stars(n: number, rMin: number, rMax: number, size: number, onlyUpper = 
 }
 
 /** A huge inside-out sphere with a vertical gradient, top colour first. */
-function skyDome(stops: [number, string][]) {
+export function skyDome(stops: [number, string][]) {
   const c = document.createElement("canvas");
   c.width = 4;
   c.height = 256;
@@ -69,7 +69,7 @@ function skyDome(stops: [number, string][]) {
   return new THREE.Mesh(new THREE.SphereGeometry(320, 32, 16), new THREE.MeshBasicMaterial({ map: t, side: THREE.BackSide, depthWrite: false, toneMapped: false }));
 }
 
-function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void, repeat?: [number, number]) {
+export function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => void, repeat?: [number, number]) {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
@@ -297,7 +297,74 @@ function place(b: THREE.Group) {
 
 // ---------- Festival night: drifting sky lanterns and fireworks, snow for Christmas ----------
 
-export function buildFestival(snow: boolean): World {
+/** Pusvanam fountains and spinning chakkarams on the ground around the table. */
+function groundCrackers(group: THREE.Group) {
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(80, 64), new THREE.MeshStandardMaterial({ color: "#1a1020", roughness: 1 }));
+  floor.rotation.x = -Math.PI / 2;
+  floor.position.y = -12;
+  group.add(floor);
+  const PER = 70;
+  const fountains: { pts: THREE.Points; vel: Float32Array; phase: Float32Array; at: THREE.Vector3 }[] = [];
+  const sparkMap = glowDisc("#ffd27a", 64);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + 0.2;
+    const at = new THREE.Vector3(Math.cos(a) * 34, -12, Math.sin(a) * 34);
+    const pot = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.1, 12), new THREE.MeshStandardMaterial({ color: ["#e5383b", "#1f7ae0", "#2fa84f", "#f4b400"][i % 4] }));
+    pot.position.copy(at).setY(-11.45);
+    group.add(pot);
+    const vel = new Float32Array(PER * 3);
+    const phase = new Float32Array(PER);
+    for (let k = 0; k < PER; k++) {
+      const ang = Math.random() * Math.PI * 2;
+      const spread = Math.random() * 1.6;
+      vel.set([Math.cos(ang) * spread, 7 + Math.random() * 4, Math.sin(ang) * spread], k * 3);
+      phase[k] = Math.random();
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(PER * 3), 3));
+    const pts = new THREE.Points(geo, new THREE.PointsMaterial({ size: 0.9, map: sparkMap, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    pts.frustumCulled = false;
+    group.add(pts);
+    fountains.push({ pts, vel, phase, at });
+  }
+  const wheels: THREE.Sprite[] = [];
+  const wheelTex = canvasTex(128, 128, (g) => {
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const grad = g.createLinearGradient(64, 64, 64 + Math.cos(a) * 60, 64 + Math.sin(a) * 60);
+      grad.addColorStop(0, "rgba(255,240,180,1)");
+      grad.addColorStop(1, "rgba(255,120,30,0)");
+      g.strokeStyle = grad;
+      g.lineWidth = 4;
+      g.beginPath(); g.arc(64, 64, 20 + (i % 3) * 12, a, a + 1.2); g.stroke();
+    }
+  });
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2 + 0.6;
+    const w = new THREE.Sprite(new THREE.SpriteMaterial({ map: wheelTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }));
+    w.position.set(Math.cos(a) * 24, -11.4, Math.sin(a) * 24);
+    w.scale.setScalar(3);
+    wheels.push(w);
+    group.add(w);
+  }
+  let t = 0;
+  return (dt: number) => {
+    t += dt;
+    for (const f of fountains) {
+      const p = f.pts.geometry.attributes.position as THREE.BufferAttribute;
+      for (let k = 0; k < PER; k++) {
+        const life = (t * 0.7 + f.phase[k]) % 1;
+        const tt = life * 1.6;
+        p.setXYZ(k, f.at.x + f.vel[k * 3] * tt, f.at.y + f.vel[k * 3 + 1] * tt - 4.9 * tt * tt, f.at.z + f.vel[k * 3 + 2] * tt);
+      }
+      p.needsUpdate = true;
+    }
+    for (const w of wheels) w.material.rotation += dt * 9;
+  };
+}
+
+export function buildFestival(kind: "diwali" | "christmas"): World {
+  const snow = kind === "christmas";
   const group = new THREE.Group();
   group.add(skyDome([[0, "#060a24"], [0.5, "#1b1650"], [0.58, "#2a1a3a"], [1, "#05040c"]]));
   group.add(stars(800, 200, 260, 1.3, true));
@@ -328,6 +395,7 @@ export function buildFestival(snow: boolean): World {
     return { sparks, mat };
   });
   bursts.forEach((b) => place(b.sparks));
+  const crackers = snow ? null : groundCrackers(group);
   let flakes: THREE.Points | null = null;
   if (snow) {
     flakes = stars(1500, 5, 60, 0.6);
@@ -337,6 +405,7 @@ export function buildFestival(snow: boolean): World {
     group,
     background: "#05040c",
     tick(dt) {
+      crackers?.(dt);
       for (const l of lanterns) {
         l.position.y += dt * l.userData.speed;
         if (l.position.y > 50) l.position.y = -60;

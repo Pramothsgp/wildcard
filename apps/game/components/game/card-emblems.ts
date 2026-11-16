@@ -1,6 +1,6 @@
 // Royal emblems of the three crowned Tamil dynasties, drawn as simple gold line art:
 // the Chera bow, the Chola tiger and the Pandya twin fish. Historical symbols, our own drawings.
-import { GOLD, type TempleStyle, photo } from "./card-themes";
+import { GOLD, type TempleStyle, lotus, photo } from "./card-themes";
 
 type Ctx = CanvasRenderingContext2D;
 
@@ -154,10 +154,31 @@ export function twinFish(g: Ctx, cx: number, cy: number, s: number, fill: string
   });
 }
 
-export const CHERA: TempleStyle = { wild: ["#0f4a3a", "#082a22"], back: ["#14634d", "#062a20"], emblem: bow, title: "CHERA", photo: "/cards/dynasty/chera.jpg" };
-export const CHOLA: TempleStyle = { wild: ["#5e0d10", "#2e0608"], back: ["#8a1418", "#3a0608"], emblem: tiger, title: "CHOLA", photo: "/cards/dynasty/chola.jpg", focus: [0.59, 0.45, 1.8] };
-export const PANDYA: TempleStyle = { wild: ["#132a5e", "#0a1633"], back: ["#1d3f8a", "#0a1838"], emblem: twinFish, title: "PANDYA", photo: "/cards/dynasty/pandya.jpg" };
+/** All three emblems together, Chola tiger in front: the wild card of the three kingdoms. */
+function triad(g: Ctx, cx: number, cy: number, s: number, fill: string) {
+  bow(g, cx - 58 * s, cy + 30 * s, s * 0.55, fill);
+  twinFish(g, cx + 58 * s, cy + 30 * s, s * 0.55, fill);
+  tiger(g, cx, cy - 14 * s, s * 0.62, fill);
+}
+
+/** Card colour → dynasty: red Chola, green Chera, blue Pandya, yellow the lotus. Flipside's dark colours follow the same order. */
+const SEALS: Record<string, Ctx extends never ? never : typeof bow> = {
+  red: tiger, pink: tiger, green: bow, teal: bow, blue: twinFish, purple: twinFish, yellow: lotus, orange: lotus,
+};
+
+export const MOOVENDAR: TempleStyle = {
+  wild: ["#4a0f1c", "#2a0a14"],
+  back: ["#7a1626", "#3a0812"],
+  emblem: triad,
+  title: "MOOVENDAR",
+  seal: (color) => SEALS[color] ?? null,
+  photos: [
+    { url: "/cards/dynasty/chera.jpg", emblem: bow },
+    { url: "/cards/dynasty/chola.jpg", emblem: tiger, focus: [0.59, 0.45, 1.6] },
+    { url: "/cards/dynasty/pandya.jpg", emblem: twinFish, focus: [0.5, 0.4, 1] },
+  ],
+};
 
 // Start loading the photos as soon as this module runs in the browser, so card backs and
 // the lobby previews usually have them on first draw.
-if (typeof window !== "undefined") for (const s of [CHERA, CHOLA, PANDYA]) photo(s.photo!);
+if (typeof window !== "undefined") for (const p of MOOVENDAR.photos!) photo(p.url);

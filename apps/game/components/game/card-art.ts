@@ -3,7 +3,8 @@ import * as THREE from "three";
 import { type Face, SYMBOL } from "@/game/cards";
 import type { ThemeId } from "@/game/themes";
 import { heroBack, heroFace, legendBack, legendFace } from "./card-themes";
-import { CHERA, CHOLA, PANDYA } from "./card-emblems";
+import { MOOVENDAR } from "./card-emblems";
+import { cricketBack, cricketFace } from "./card-cricket";
 import { figureBack, figureFace } from "./card-figures";
 import { festivalBack, festivalFace } from "./card-festivals";
 import { fleetBack, fleetFace } from "./card-fleet";
@@ -193,13 +194,13 @@ const FACES: Record<ThemeId, (f: Face) => HTMLCanvasElement> = {
   classic: drawFace, heroes: heroFace, action: (f) => figureFace(f), mythic: (f) => figureFace(f, MYTHIC), fleet: fleetFace,
   pongal: (f) => festivalFace(f, "pongal"), diwali: (f) => festivalFace(f, "diwali"), christmas: (f) => festivalFace(f, "christmas"),
   legends: (f) => legendFace(f),
-  chera: (f) => legendFace(f, CHERA), chola: (f) => legendFace(f, CHOLA), pandya: (f) => legendFace(f, PANDYA),
+  moovendar: (f) => legendFace(f, MOOVENDAR), cricket: cricketFace,
 };
 const BACKS: Record<ThemeId, () => HTMLCanvasElement> = {
   classic: drawBack, heroes: heroBack, action: () => figureBack(), mythic: () => figureBack(MYTHIC), fleet: fleetBack,
   pongal: () => festivalBack("pongal"), diwali: () => festivalBack("diwali"), christmas: () => festivalBack("christmas"),
   legends: () => legendBack(),
-  chera: () => legendBack(CHERA), chola: () => legendBack(CHOLA), pandya: () => legendBack(PANDYA),
+  moovendar: () => legendBack(MOOVENDAR), cricket: cricketBack,
 };
 
 export const faceTexture = (f: Face, theme: ThemeId = "classic") => tex(`${theme}|${f.color}:${f.value}`, () => FACES[theme](f));

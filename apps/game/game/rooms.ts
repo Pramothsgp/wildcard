@@ -421,7 +421,8 @@ export function viewFor(room: Room, uid: string): RoomView {
     };
   }
   const reactions = room.reactions.filter((x) => Date.now() - x.at < REACTION_MS);
-  return { ...settings, theme: settings.theme ?? "classic", code: room.code, status: room.status, hostId, you: uid, players, game, log, chat, reactions };
+  // Older saved tables can name a theme that no longer exists (e.g. "chola" before Moovendar).
+  return { ...settings, theme: isThemeId(settings.theme) ? settings.theme : "classic", code: room.code, status: room.status, hostId, you: uid, players, game, log, chat, reactions };
 }
 
 let lobbyTimer: NodeJS.Timeout | undefined;
@@ -460,7 +461,7 @@ function cleanSettings(input: Partial<RoomSettings> | undefined, prev: RoomSetti
   const name = typeof i.name === "string" && i.name.trim() ? i.name.trim().slice(0, 40) : prev.name;
   const maxPlayers = typeof i.maxPlayers === "number" ? Math.min(10, Math.max(2, Math.round(i.maxPlayers))) : prev.maxPlayers;
   const rules = sanitizeRules(mode, i.rules ?? (mode === prev.mode ? prev.rules : undefined));
-  const theme = isThemeId(i.theme) ? i.theme : prev.theme ?? "classic";
+  const theme = isThemeId(i.theme) ? i.theme : isThemeId(prev.theme) ? prev.theme : "classic";
   return { name, mode, rules, maxPlayers, theme, isPublic: typeof i.isPublic === "boolean" ? i.isPublic : prev.isPublic };
 }
 
