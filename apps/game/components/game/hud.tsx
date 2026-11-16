@@ -56,7 +56,7 @@ export function TopBar({ room, status, onRules }: { room: RoomView; status: stri
         <span className="h-4 w-px bg-amber-300/30" aria-hidden />
         <span className="font-semibold text-amber-50">{room.name}</span>
         <span className={chip}>{MODES[room.mode].name}</span>
-        <span className={chip}>{THEMES[room.theme ?? "classic"].name}</span>
+        <span className={chip}>{THEMES[room.theme ?? "classic"].name} cards</span>
         {ruleChanges(room.mode, room.rules).map((r) => (
           <span key={r} className="rounded bg-amber-400/20 px-2 py-0.5 text-xs text-amber-200">{r}</span>
         ))}

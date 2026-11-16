@@ -9,11 +9,9 @@
   --ring: 43 96% 56%;
 }
 
-/* Dark room with a warm pool of lamplight, behind the transparent 3D canvas. */
+/* Deep space, shown while the 3D scene (which draws its own starfield) loads. */
 .table-room {
-  background:
-    radial-gradient(ellipse 60% 55% at 50% 48%, rgb(120 78 38 / 0.35), transparent 70%),
-    radial-gradient(ellipse 90% 80% at 50% 50%, #1c130c 0%, #0d0906 55%, #040302 100%);
+  background: radial-gradient(ellipse 90% 80% at 50% 50%, #0b1030 0%, #04050f 60%, #010104 100%);
 }
 
 /* Player name tags floating over the 3D table (CSS2DRenderer). */

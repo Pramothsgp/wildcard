@@ -165,5 +165,15 @@ function Table({ room, onPlay, onDraw }: { room: RoomView; onPlay: (id: number) 
     scene.current?.update(room);
   }, [room]);
 
-  return <div ref={host} className="table-room absolute inset-0 touch-none" aria-label="Game table" />;
+  return (
+    <>
+      <div ref={host} className="table-room absolute inset-0 touch-none" aria-label="Game table. Drag to turn, scroll or pinch to zoom." />
+      {/* Outside the canvas host, so pressing these never drags the camera. */}
+      <div className="absolute bottom-20 right-3 z-10 flex flex-col gap-2 sm:bottom-3">
+        <Btn variant="ghost" className="px-3" aria-label="Zoom in" onClick={() => scene.current?.zoom(0.8)}>+</Btn>
+        <Btn variant="ghost" className="px-3" aria-label="Zoom out" onClick={() => scene.current?.zoom(1.25)}>−</Btn>
+        <Btn variant="ghost" className="px-3 text-xs" onClick={() => scene.current?.resetView()}>Reset view</Btn>
+      </div>
+    </>
+  );
 }
