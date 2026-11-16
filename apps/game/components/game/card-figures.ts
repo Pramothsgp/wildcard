@@ -7,7 +7,7 @@ import { H, HEX, W, WILD_COLS, base, isDarkFace, pinwheel, rounded, shade } from
 type Head = "headband" | "mask" | "visor" | "dome" | "hat" | "kabuto" | "robot" | "luchador" | "hood" | "horns";
 /** A custom head, drawn over a plain face, for casts defined in other files. */
 export type HeadFn = (g: CanvasRenderingContext2D, h: Hero, accent: string) => void;
-type Prop = "sword" | "bow" | "axe" | "staff" | "spear" | "shield" | null;
+type Prop = "sword" | "bow" | "axe" | "staff" | "spear" | "shield" | "bat" | "ball" | "gloves" | null;
 export type Hero = { head: Head | HeadFn; skin: string; suit: string; trim: string; prop: Prop; cape?: boolean; jetpack?: boolean };
 
 /** Ten heroes, in the same order as their names in THEMES.action.bots. */
@@ -57,7 +57,7 @@ export function outlined(g: CanvasRenderingContext2D, fill: string, width = 4) {
 export const drawActionHero = (g: CanvasRenderingContext2D, n: number) => drawHero(g, HEROES[n % HEROES.length], "#d4af60");
 
 /** One hero in a fighting stance, centred on the origin, about 220 tall. `accent` is the card colour. */
-function drawHero(g: CanvasRenderingContext2D, h: Hero, accent: string) {
+export function drawHero(g: CanvasRenderingContext2D, h: Hero, accent: string) {
   g.lineCap = "round";
   g.lineJoin = "round";
   if (h.cape) {
@@ -132,6 +132,18 @@ function prop(g: CanvasRenderingContext2D, p: Prop) {
     g.quadraticCurveTo(-10, -160, -12, -128);
     g.quadraticCurveTo(-26, -136, -40, -132);
     outlined(g, "#c9d1da", 3);
+  } else if (p === "bat") {
+    // Willow blade held up over the shoulder, grip in the raised fist.
+    limb(g, [-46, -100, -40, -124], "#2a2a2a", 5);
+    g.save(); g.translate(-38, -126); g.rotate(-0.12);
+    rounded(g, -9, -78, 18, 78, 6); outlined(g, "#e9d7a8", 3);
+    g.fillStyle = "#c9a46a"; g.fillRect(-2, -74, 4, 70);
+    g.restore();
+  } else if (p === "ball") {
+    g.beginPath(); g.arc(-46, -112, 10, 0, Math.PI * 2); outlined(g, "#c8102e", 3);
+    g.strokeStyle = "#fff"; g.lineWidth = 1.5; g.beginPath(); g.arc(-46, -112, 6, -0.6, 0.6); g.stroke();
+  } else if (p === "gloves") {
+    for (const [x, y] of [[-46, -100], [42, 22]]) { g.beginPath(); g.ellipse(x, y, 15, 13, 0, 0, Math.PI * 2); outlined(g, "#f2f2f2", 3); }
   } else if (p === "spear") {
     limb(g, [-46, -60, -46, -160], "#8a5a2b", 5);
     g.beginPath(); g.moveTo(-46, -176); g.lineTo(-54, -156); g.lineTo(-38, -156); g.closePath(); outlined(g, "#d9dee6", 3);

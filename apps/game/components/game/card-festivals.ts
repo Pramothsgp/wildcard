@@ -1,9 +1,11 @@
-// Festival packs: Pongal (overflowing pot and sugarcane), Diwali (diya and rangoli) and
-// Christmas (tree and snowflakes). Original drawings; the card colour shows in each design.
+// Festival packs: Pongal (a sunny harvest: pot, sugarcane, sun, cow, kolam), Diwali (a night of
+// crackers and lights) and Christmas (tree and snowflakes). Original drawings; the card colour
+// shows in each design, and each card value gets its own picture.
 import { type Face, SYMBOL, type Value } from "@/game/cards";
 import { THEMES } from "@/game/themes";
 import { H, HEX, W, WILD_COLS, base, isDarkFace, pinwheel, rounded, shade } from "./card-art";
 import { INK, namePlate, outlined } from "./card-figures";
+import { type Art, DIWALI_ART, PONGAL_ART } from "./card-festival-art";
 
 export type Festival = "pongal" | "diwali" | "christmas";
 type Ctx = CanvasRenderingContext2D;
@@ -77,6 +79,31 @@ function tree(g: Ctx, accent: string) {
   }
 }
 
+/** The pot and diya lead each set; the rest are in card-festival-art.ts. */
+const ART: Record<"pongal" | "diwali", Art[]> = {
+  pongal: [(g, a) => pongalPot(g, a), ...PONGAL_ART],
+  diwali: [diya, ...DIWALI_ART],
+};
+
+/** Faint sun rays from the top of a Pongal card. */
+function rays(g: Ctx) {
+  g.fillStyle = "rgba(255,250,220,0.18)";
+  for (let i = 0; i < 12; i++) {
+    const a = Math.PI * (0.08 + i * 0.075);
+    g.beginPath(); g.moveTo(W / 2, -20); g.lineTo(W / 2 + Math.cos(a) * 420, -20 + Math.sin(a) * 420); g.lineTo(W / 2 + Math.cos(a + 0.035) * 420, -20 + Math.sin(a + 0.035) * 420); g.fill();
+  }
+}
+
+/** A Diwali night sky: small twinkles. */
+function stars(g: Ctx) {
+  let seed = 3;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let k = 0; k < 40; k++) {
+    g.fillStyle = ["#fff6c4", "#ffd23d", "#ff9a3d"][k % 3];
+    g.fillRect(rnd() * W, rnd() * 250, 2, 2);
+  }
+}
+
 function snowflakes(g: Ctx) {
   g.strokeStyle = "rgba(255,255,255,0.55)";
   g.lineWidth = 2;
@@ -96,15 +123,17 @@ export function festivalFace(f: Face, kind: Festival): HTMLCanvasElement {
   const [c, g] = base(kind === "christmas" ? "#f4f4f4" : "#d4af60");
   const fill = f.color === "wild" ? { pongal: "#7a3a0a", diwali: "#2a0a3a", christmas: "#0f2a1a" }[kind] : HEX[f.color];
   rounded(g, 10, 10, W - 20, H - 20, 18);
+  // Pongal is a sunny morning, Diwali a dark night lit by its colour, Christmas in between.
   const grad = g.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0, shade(fill, 0.1));
-  grad.addColorStop(1, shade(fill, -0.4));
+  grad.addColorStop(0, shade(fill, kind === "pongal" ? 0.45 : kind === "diwali" ? -0.6 : 0.1));
+  grad.addColorStop(1, shade(fill, kind === "diwali" ? -0.1 : -0.4));
   g.fillStyle = grad;
   g.fill();
   g.save();
   g.clip();
   if (f.color === "wild") { g.globalAlpha = 0.5; pinwheel(g, W / 2, 150, 160, WILD_COLS(dark)); g.globalAlpha = 1; }
-  if (kind === "pongal") dots(g, "#fff3d6", 0.3);
+  if (kind === "pongal") { rays(g); dots(g, "#fff3d6", 0.35); }
+  if (kind === "diwali") stars(g);
   if (kind === "christmas") snowflakes(g);
   g.restore();
 
@@ -113,17 +142,17 @@ export function festivalFace(f: Face, kind: Festival): HTMLCanvasElement {
   g.translate(W / 2, 150);
   g.scale(0.9, 0.9);
   g.lineJoin = "round";
-  if (kind === "pongal") pongalPot(g, accent);
-  else if (kind === "diwali") diya(g, accent, dark);
-  else tree(g, accent);
+  const v = VALUES.indexOf(f.value);
+  if (kind === "christmas") tree(g, accent);
+  else ART[kind][v % ART[kind].length](g, accent, dark);
   g.restore();
-  namePlate(g, f, THEMES[kind].bots[VALUES.indexOf(f.value) % 10]);
+  namePlate(g, f, THEMES[kind].bots[v % 10]);
   return c;
 }
 
 export function festivalBack(kind: Festival): HTMLCanvasElement {
   const [c, g] = base(kind === "christmas" ? "#f4f4f4" : "#d4af60");
-  const [a, b] = { pongal: ["#d9822b", "#5a2a06"], diwali: ["#6a1a8a", "#1b0626"], christmas: ["#b3202a", "#3a0a0e"] }[kind];
+  const [a, b] = { pongal: ["#ffd23d", "#c4651a"], diwali: ["#3a1060", "#08020f"], christmas: ["#b3202a", "#3a0a0e"] }[kind];
   rounded(g, 10, 10, W - 20, H - 20, 18);
   const grad = g.createRadialGradient(W / 2, H / 2, 10, W / 2, H / 2, 240);
   grad.addColorStop(0, a);
@@ -133,19 +162,20 @@ export function festivalBack(kind: Festival): HTMLCanvasElement {
   g.save();
   g.clip();
   if (kind === "christmas") snowflakes(g);
-  else dots(g, "#ffe08a", 0.35, 18);
+  else if (kind === "pongal") { rays(g); dots(g, "#fff3d6", 0.4, 18); }
+  else stars(g);
   g.restore();
   g.save();
   g.translate(W / 2, H / 2 + 6);
   g.scale(0.8, 0.8);
   g.lineJoin = "round";
-  if (kind === "pongal") pongalPot(g, "#d4af60");
-  else if (kind === "diwali") diya(g, "#d4af60", false);
+  if (kind === "pongal") pongalPot(g, "#e5383b");
+  else if (kind === "diwali") ART.diwali[2](g, "#d4af60", false);
   else tree(g, "#d4af60");
   g.restore();
   g.textAlign = "center";
   g.textBaseline = "middle";
-  g.fillStyle = "#fff3d6";
+  g.fillStyle = kind === "pongal" ? "#5a2a06" : "#fff3d6";
   g.font = "700 22px Georgia, 'Times New Roman', serif";
   g.fillText(THEMES[kind].name.toUpperCase(), W / 2, 50);
   g.font = "700 18px Georgia, 'Times New Roman', serif";

@@ -195,11 +195,15 @@ export type TempleStyle = {
   emblem: (g: CanvasRenderingContext2D, cx: number, cy: number, s: number, color: string) => void;
   /** Small caption at the top of the back, e.g. "CHOLA". */
   title?: string;
-  /** Public-domain photo shown in the arch on the card back (see public/cards/dynasty/CREDITS.md). */
-  photo?: string;
-  /** Point of the photo to centre in the arch (0..1 across and down) and how far to zoom in. */
-  focus?: [number, number, number];
+  /** Public-domain photos shown in arches on the card back (see public/cards/dynasty/CREDITS.md). */
+  photos?: Photo[];
+  /** Emblem for a card colour, drawn as a small seal on the face. */
+  seal?: (color: string) => Emblem | null;
 };
+
+type Emblem = TempleStyle["emblem"];
+/** `focus`: point to centre in the window (0..1 across and down) and how far to zoom in. */
+export type Photo = { url: string; emblem: Emblem; focus?: [number, number, number] };
 
 const photos = new Map<string, HTMLImageElement>();
 /** Load once and share; the same element is reused by every card back. */
@@ -213,37 +217,51 @@ export function photo(url: string) {
   return img;
 }
 
-/** The photo, cropped to fill the arch window on a card back. */
-function drawPhoto(g: CanvasRenderingContext2D, img: HTMLImageElement, style: TempleStyle) {
-  const cx = W / 2;
-  const cy = H / 2 - 6;
+/** Draw a photo cropped to fill the arch window centred at (cx, cy). */
+function photoInArch(g: CanvasRenderingContext2D, img: HTMLImageElement, p: Photo, cx: number, cy: number, w: number, h: number) {
   g.save();
-  archPath(g, cx, cy, 168, 236);
+  archPath(g, cx, cy, w, h);
   g.clip();
-  const [fx, fy, zoom] = style.focus ?? [0.5, 0.5, 1];
-  const s = Math.max(168 / img.width, 236 / img.height) * zoom;
-  const w = img.width * s;
-  const h = img.height * s;
+  const [fx, fy, zoom] = p.focus ?? [0.5, 0.5, 1];
+  const s = Math.max(w / img.width, h / img.height) * zoom;
+  const iw = img.width * s;
+  const ih = img.height * s;
   // Centre the focus point, but never pull the photo's edge inside the window.
-  const x = Math.min(cx - 84, Math.max(cx + 84 - w, cx - fx * w));
-  const y = Math.min(cy - 118, Math.max(cy + 118 - h, cy - fy * h));
-  g.drawImage(img, x, y, w, h);
+  const x = Math.min(cx - w / 2, Math.max(cx + w / 2 - iw, cx - fx * iw));
+  const y = Math.min(cy - h / 2, Math.max(cy + h / 2 - ih, cy - fy * ih));
+  g.drawImage(img, x, y, iw, ih);
   // A warm wash ties a black-and-white photo or an aquatint into the card's colours.
   g.fillStyle = "rgba(120,60,10,0.15)";
   g.fillRect(0, 0, W, H);
   g.restore();
-  archPath(g, cx, cy, 168, 236);
-  g.lineWidth = 6;
+  archPath(g, cx, cy, w, h);
+  g.lineWidth = 4;
   g.strokeStyle = GOLD;
   g.stroke();
-  // The emblem as a small seal at the foot of the arch.
+}
+
+function seal(g: CanvasRenderingContext2D, emblem: Emblem, cx: number, cy: number, r: number, fill: string) {
   g.beginPath();
-  g.arc(cx, cy + 108, 26, 0, Math.PI * 2);
-  g.fillStyle = style.back[1];
+  g.arc(cx, cy, r, 0, Math.PI * 2);
+  g.fillStyle = fill;
   g.fill();
   g.lineWidth = 3;
+  g.strokeStyle = GOLD;
   g.stroke();
-  style.emblem(g, cx, cy + 108, 0.27, style.back[1]);
+  emblem(g, cx, cy, r / 96, fill);
+}
+
+/** One arch per photo side by side, each with its emblem as a seal underneath. */
+function drawPhotos(g: CanvasRenderingContext2D, imgs: HTMLImageElement[], style: TempleStyle) {
+  const list = style.photos!;
+  const gap = 6;
+  const w = (W - 56 - gap * (list.length - 1)) / list.length;
+  const h = 200;
+  list.forEach((p, i) => {
+    const cx = 28 + w / 2 + i * (w + gap);
+    photoInArch(g, imgs[i], p, cx, H / 2 - 14, w, h);
+    seal(g, p.emblem, cx, H / 2 + 104, 17, style.back[1]);
+  });
 }
 
 function kolam(g: CanvasRenderingContext2D, color: string, alpha: number) {
@@ -336,6 +354,9 @@ export function legendFace(f: Face, style: TempleStyle = LEGENDS): HTMLCanvasEle
   g.lineWidth = 2;
   g.stroke();
   kalasam(g, cx, cy - 105 + 2);
+  // A dynasty seal for this card's colour sits at the foot of the arch.
+  const mark = style.seal?.(f.color);
+  if (mark) seal(g, mark, cx, cy + 76, 21, style.back[1]);
 
   const sym = SYMBOL[f.value];
   g.lineWidth = 6;
@@ -409,12 +430,12 @@ export function legendBack(style: TempleStyle = LEGENDS): HTMLCanvasElement {
     g.stroke();
     style.emblem(g, W / 2, H / 2, 0.72, style.back[1]);
   };
-  const img = style.photo ? photo(style.photo) : null;
-  if (img?.complete && img.naturalWidth) drawPhoto(g, img, style);
+  const imgs = style.photos?.map((p) => photo(p.url)) ?? [];
+  if (imgs.length && imgs.every((i) => i.complete && i.naturalWidth)) drawPhotos(g, imgs, style);
   else {
     centre();
-    // Emblem now, photo as soon as it arrives. A failed load just keeps the emblem.
-    if (img) repaintLater.set(c, img.decode().then(() => drawPhoto(g, img, style), () => {}));
+    // Emblem now, photos as soon as they arrive. A failed load just keeps the emblem.
+    if (imgs.length) repaintLater.set(c, Promise.all(imgs.map((i) => i.decode())).then(() => drawPhotos(g, imgs, style), () => {}));
   }
   g.textAlign = "center";
   g.textBaseline = "middle";
