@@ -1,6 +1,7 @@
 // Messages between browser and game server. Types only, safe to import on the client.
 import type { Color, Face, Side } from "./cards.ts";
 import type { ModeId, Rules } from "./modes.ts";
+import type { ThemeId } from "./themes.ts";
 
 export type Action =
   | { type: "play"; cardId: number; color?: Color; target?: string }
@@ -12,7 +13,7 @@ export type Action =
 
 export type ClientCard = { id: number; face: Face };
 
-export type RoomSettings = { name: string; mode: ModeId; rules: Rules; isPublic: boolean; maxPlayers: number };
+export type RoomSettings = { name: string; mode: ModeId; rules: Rules; isPublic: boolean; maxPlayers: number; theme: ThemeId };
 
 export type RoomSummary = {
   code: string;
@@ -36,6 +37,10 @@ export type PlayerView = {
   out: boolean;
   /** Flipside only: the sides of their cards everyone else can see. */
   backs: Face[] | null;
+  /** Finishing position when "play on" is used, 1 = first out. */
+  place: number | null;
+  /** Their actual hand, shown only to players who have already finished. */
+  reveal: Face[] | null;
 };
 
 export type GameView = {

@@ -2,7 +2,7 @@
 import type { DeckKind, Face, Value } from "./cards.ts";
 import type { Rules } from "./modes.ts";
 
-export type Toggle = "stacking" | "sevenZero" | "jumpIn" | "drawToMatch" | "challenge" | "mercy";
+export type Toggle = "stacking" | "sevenZero" | "jumpIn" | "drawToMatch" | "challenge" | "mercy" | "playOn";
 
 export const RULE_INFO: Record<Toggle, { label: string; hint: string; detail: string }> = {
   stacking: {
@@ -40,6 +40,12 @@ export const RULE_INFO: Record<Toggle, { label: string; hint: string; detail: st
     hint: "Reach 25 cards and you're out of the round.",
     detail:
       "Anyone holding 25 or more cards is knocked out of the round; their cards go back into the deck. If everyone else is knocked out, the last player left wins the round.",
+  },
+  playOn: {
+    label: "Play on after finishing",
+    hint: "First out wins; the rest keep playing for places.",
+    detail:
+      "The first player to empty their hand wins the round and scores the cards left in everyone else's hands, as usual. Instead of the round ending, everyone else keeps playing for 2nd, 3rd and so on until one player is left holding cards. Players who have finished can see every remaining hand while they watch.",
   },
 };
 
@@ -88,5 +94,8 @@ export function deckSpecials(deck: DeckKind): { title: string; faces: Face[] }[]
 }
 
 const f = (color: Face["color"], value: Value): Face => ({ color, value });
+
+/** 1 → "1st", 12 → "12th", 22 → "22nd". */
+export const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th")}`;
 
 export const activeToggles = (rules: Rules) => (Object.keys(RULE_INFO) as Toggle[]).filter((k) => rules[k]);

@@ -14,6 +14,8 @@ export type Rules = {
   challenge: boolean;
   /** Knocked out at 25 cards. */
   mercy: boolean;
+  /** When someone goes out, the rest keep playing for the places. */
+  playOn: boolean;
   handSize: number;
   /** Match ends when someone reaches this. 0 = single round. */
   targetScore: number;
@@ -28,6 +30,7 @@ const base: Rules = {
   drawToMatch: false,
   challenge: true,
   mercy: false,
+  playOn: false,
   handSize: 7,
   targetScore: 500,
   turnSeconds: 30,
@@ -52,7 +55,7 @@ const num = (v: unknown, min: number, max: number, fallback: number) =>
 
 const RULE_LABELS: Record<string, string> = {
   stacking: "stacking", sevenZero: "7 swaps / 0 rotates", jumpIn: "jump-in",
-  drawToMatch: "draw until playable", challenge: "+4 challenge", mercy: "knock-out at 25",
+  drawToMatch: "draw until playable", challenge: "+4 challenge", mercy: "knock-out at 25", playOn: "play on",
 };
 
 /** House rules that differ from the mode's defaults, e.g. ["+ draw until playable"]. */
@@ -68,7 +71,7 @@ export function sanitizeRules(mode: ModeId, input: unknown): Rules {
   const rules = { ...MODES[mode].rules };
   if (!input || typeof input !== "object") return rules;
   const o = input as Record<string, unknown>;
-  for (const key of ["stacking", "sevenZero", "jumpIn", "drawToMatch", "challenge", "mercy"] as const) {
+  for (const key of ["stacking", "sevenZero", "jumpIn", "drawToMatch", "challenge", "mercy", "playOn"] as const) {
     if (typeof o[key] === "boolean") rules[key] = o[key];
   }
   rules.handSize = num(o.handSize, 3, 12, rules.handSize);

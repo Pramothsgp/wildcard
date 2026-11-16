@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Card, Face } from "./cards.ts";
 import { type GameState, act, botAction, canPlay, createGame, startRound } from "./engine.ts";
+import { ordinal } from "./help.ts";
 import { MODES, sanitizeRules } from "./modes.ts";
 
 const players = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: `P${i}`, bot: false }));
@@ -187,4 +188,41 @@ test("draws say why they happened", () => {
   const ev = act(s, 0, { type: "draw" });
   expect(ev[0].text).toBe("P0 drew 3 (until playable)");
   expect(s.drawn).not.toBe(null);
+});
+
+test("play on: first out wins the round, the rest play for places", () => {
+  const s = game("classic", 3);
+  s.rules = { ...s.rules, playOn: true };
+  rig(s, card("red", "5"), [[card("red", "1")], [card("red", "2"), card("blue", "9")], [card("red", "3"), card("green", "4")]]);
+  act(s, 0, { type: "play", cardId: s.seats[0].hand[0].id });
+  expect(s.phase).toBe("playing");
+  expect(s.roundWinner).toBe(0);
+  expect(s.seats[0].score).toBe(2 + 9 + 3 + 4);
+  expect(s.seats[0].place).toBe(1);
+  expect(s.turn).toBe(1);
+  act(s, 1, { type: "play", cardId: s.seats[1].hand[0].id });
+  // P2 is next; P0 is skipped from now on.
+  expect(s.turn).toBe(2);
+  s.seats[1].hand = [card("red", "6")];
+  act(s, 2, { type: "draw" });
+  if (s.drawn !== null) act(s, 2, { type: "pass" });
+  expect(s.turn).toBe(1);
+  act(s, 1, { type: "play", cardId: s.seats[1].hand[0].id });
+  expect(s.phase).not.toBe("playing");
+  expect(s.seats.map((p) => p.place)).toEqual([1, 2, 3]);
+  expect(s.seats[0].score).toBe(18);
+});
+
+test("play on with bots always finishes", () => {
+  for (const mode of Object.keys(MODES) as (keyof typeof MODES)[]) {
+    const s = createGame({ ...MODES[mode].rules, targetScore: 0, playOn: true }, players(5).map((p) => ({ ...p, bot: true })));
+    startRound(s);
+    let steps = 0;
+    while (s.phase === "playing" && steps++ < 20000) act(s, s.turn, botAction(s, s.turn, true));
+    expect(s.phase).toBe("matchOver");
+  }
+});
+
+test("ordinals", () => {
+  expect([1, 2, 3, 4, 11, 12, 13, 21, 22].map(ordinal)).toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd"]);
 });

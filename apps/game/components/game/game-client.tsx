@@ -72,7 +72,7 @@ export function GameClient({ code }: { code: string }) {
 
   if (!room) {
     return (
-      <div className="grid h-dvh place-items-center bg-[#0b1020] text-white/80">
+      <div className="grid h-dvh place-items-center bg-[#0a0705] text-white/80">
         {toast ? (
           <div className="space-y-4 text-center">
             <p className="text-lg font-semibold">{toast}</p>
@@ -93,7 +93,7 @@ export function GameClient({ code }: { code: string }) {
   const palette = g?.side === "dark" ? DARK_COLORS : LIGHT_COLORS;
 
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-[#0b1020] text-white select-none">
+    <div className="relative h-dvh w-full overflow-hidden bg-[#0a0705] text-white select-none">
       <Table room={room} onPlay={onPlay} onDraw={onDraw} />
       <TopBar room={room} status={status} onRules={() => setRules(true)} />
       <SidePanel room={room} />
@@ -165,5 +165,5 @@ function Table({ room, onPlay, onDraw }: { room: RoomView; onPlay: (id: number) 
     scene.current?.update(room);
   }, [room]);
 
-  return <div ref={host} className="absolute inset-0 touch-none" aria-label="Game table" />;
+  return <div ref={host} className="table-room absolute inset-0 touch-none" aria-label="Game table" />;
 }

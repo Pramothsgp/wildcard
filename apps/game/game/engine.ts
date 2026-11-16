@@ -4,6 +4,7 @@ import {
   type Card, type Color, type Side, DARK_COLORS, LIGHT_COLORS,
   buildDeck, describe, drawAmount, face, isWild, points,
 } from "./cards.ts";
+import { ordinal } from "./help.ts";
 import type { Rules } from "./modes.ts";
 import type { Action } from "./protocol.ts";
 
@@ -16,7 +17,10 @@ export type Seat = {
   hand: Card[];
   score: number;
   calledUno: boolean;
+  /** Knocked out, or finished when playing on. */
   out: boolean;
+  /** Finishing position when playing on; null until they go out. */
+  place?: number | null;
 };
 
 export type GameState = {
@@ -62,7 +66,7 @@ const active = (s: GameState) => s.seats.filter((p) => !p.out);
 export function createGame(rules: Rules, players: { id: string; name: string; bot: boolean }[]): GameState {
   return {
     rules, phase: "roundOver", round: 0,
-    seats: players.map((p) => ({ ...p, auto: false, hand: [], score: 0, calledUno: false, out: false })),
+    seats: players.map((p) => ({ ...p, auto: false, hand: [], score: 0, calledUno: false, out: false, place: null })),
     drawPile: [], discard: [], side: "light", color: "red", direction: 1, turn: 0,
     pendingDraw: 0, challenge: null, drawn: null, unoTarget: null, roundWinner: null, lastRoundPoints: 0,
   };
@@ -78,7 +82,7 @@ export function startRound(s: GameState): GameEvent[] {
   s.side = "light";
   s.direction = 1;
   Object.assign(s, { pendingDraw: 0, challenge: null, drawn: null, unoTarget: null, roundWinner: null, phase: "playing" });
-  for (const p of s.seats) Object.assign(p, { hand: s.drawPile.splice(0, s.rules.handSize), calledUno: false, out: false });
+  for (const p of s.seats) Object.assign(p, { hand: s.drawPile.splice(0, s.rules.handSize), calledUno: false, out: false, place: null });
   // Start on a number card so nobody gets hit before the first turn.
   let first = s.drawPile.findIndex((c) => /^\d$/.test(c.light.value));
   if (first < 0) first = 0;
@@ -122,7 +126,11 @@ function draw(s: GameState, seat: number, n: number, ev: GameEvent[], why: strin
     p.out = true;
     s.drawPile.push(...p.hand.splice(0));
     ev.push({ kind: "knockout", seat, text: `${p.name} hit 25 cards and is knocked out` });
-    if (active(s).length === 1) endRound(s, s.seats.indexOf(active(s)[0]), ev);
+    if (active(s).length === 1) {
+      // Playing on, the round already has a winner; otherwise the last one standing wins it.
+      if (s.roundWinner !== null) closeRound(s, ev);
+      else endRound(s, s.seats.indexOf(active(s)[0]), ev);
+    }
   }
   return got;
 }
@@ -307,11 +315,20 @@ function play(s: GameState, seat: number, a: Extract<Action, { type: "play" }>, 
   if (me.hand.length === 1 && !me.calledUno) s.unoTarget = seat;
 
   if (me.hand.length === 0) {
+    const victim = s.pendingDraw ? next : -1;
     if (s.pendingDraw) {
       draw(s, next, s.pendingDraw, ev, `took +${s.pendingDraw}`);
       s.pendingDraw = 0;
     }
-    if (s.phase === "playing") endRound(s, seat, ev);
+    s.challenge = null;
+    if (s.phase !== "playing") return ev;
+    if (!s.rules.playOn) {
+      endRound(s, seat, ev);
+      return ev;
+    }
+    finish(s, seat, ev);
+    // A drawing victim also loses their turn. act() moves the turn off any seat that is out.
+    if (s.phase === "playing") s.turn = victim >= 0 ? nextSeat(s, victim) : next;
     return ev;
   }
   if (s.pendingDraw) {
@@ -336,18 +353,40 @@ function endTurn(s: GameState, seat: number) {
 }
 
 function endRound(s: GameState, winner: number, ev: GameEvent[]) {
+  award(s, winner, ev);
+  closeRound(s, ev);
+}
+
+/** The first player out scores the cards left in everyone else's hands. */
+function award(s: GameState, winner: number, ev: GameEvent[]) {
   const pts = s.seats.reduce((sum, p, i) => (i === winner ? sum : sum + p.hand.reduce((t, c) => t + points(face(c, s.side)), 0)), 0);
   const w = s.seats[winner];
   w.score += pts;
   s.roundWinner = winner;
   s.lastRoundPoints = pts;
+  ev.push({ kind: "roundOver", seat: winner, text: `${w.name} wins round ${s.round} (+${pts})`, data: { points: pts } });
+}
+
+/** Playing on: take this seat out with the next place, and close the round when one player is left. */
+function finish(s: GameState, seat: number, ev: GameEvent[]) {
+  const p = s.seats[seat];
+  p.out = true;
+  p.place = s.seats.filter((x) => x.place).length + 1;
+  if (s.roundWinner === null) award(s, seat, ev);
+  else ev.push({ kind: "finish", seat, text: `${p.name} finished ${ordinal(p.place)}` });
+  if (active(s).length <= 1) closeRound(s, ev);
+}
+
+function closeRound(s: GameState, ev: GameEvent[]) {
+  const last = active(s)[0];
+  if (s.rules.playOn && last) last.place = s.seats.filter((x) => x.place).length + 1;
   s.pendingDraw = 0;
   s.challenge = null;
   s.drawn = null;
+  const w = s.seats[s.roundWinner!];
   const over = s.rules.targetScore === 0 || w.score >= s.rules.targetScore;
   s.phase = over ? "matchOver" : "roundOver";
-  ev.push({ kind: "roundOver", seat: winner, text: `${w.name} wins round ${s.round} (+${pts})`, data: { points: pts } });
-  if (over) ev.push({ kind: "matchOver", seat: winner, text: `${w.name} wins the match with ${w.score} points!` });
+  if (over) ev.push({ kind: "matchOver", seat: s.roundWinner!, text: `${w.name} wins the match with ${w.score} points!` });
 }
 
 /** What the server does for a bot or an absent player. Simple and fast, not clever. */
