@@ -2,6 +2,13 @@
 @import "@repo/ui/styles.css";
 @import "@repo/auth/styles.css";
 
+/* Game accent: amber instead of the shared blue, so buttons match the table UI. */
+.dark {
+  --primary: 43 96% 56%;
+  --primary-foreground: 222 47% 8%;
+  --ring: 43 96% 56%;
+}
+
 /* Player name tags floating over the 3D table (CSS2DRenderer). */
 .seat-tag {
   display: flex;
