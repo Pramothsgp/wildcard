@@ -1,7 +1,7 @@
-// Themed card art: Hero Squad (comic book) and Tamil Legends (temple gold and kolam).
+// Themed card art: Hero Squad (comic book) and the Tamil temple themes (gold, kolam, an emblem).
 // Original drawings on a canvas, no images, characters or logos from anyone else.
 import { type Face, SYMBOL } from "@/game/cards";
-import { H, HEX, W, WILD_COLS, base, isDarkFace, pinwheel, rounded, shade, underline } from "./card-art";
+import { H, HEX, W, WILD_COLS, base, isDarkFace, pinwheel, repaintLater, rounded, shade, underline } from "./card-art";
 
 const SANS = "system-ui, -apple-system, Segoe UI, sans-serif";
 const SERIF = "Georgia, 'Times New Roman', serif";
@@ -183,7 +183,68 @@ export function heroBack(): HTMLCanvasElement {
 
 // ---------- Tamil Legends: gold frame, kolam dots and a temple arch with a kalasam ----------
 
-const GOLD = "#d4af60";
+export const GOLD = "#d4af60";
+
+/** What changes between the Tamil temple themes: colours and the royal emblem. */
+export type TempleStyle = {
+  /** Panel colour of wild cards, light and dark side. */
+  wild: [string, string];
+  /** Card back gradient, centre to edge. */
+  back: [string, string];
+  /** Draws the emblem centred on (cx, cy), about 84 * s in radius. */
+  emblem: (g: CanvasRenderingContext2D, cx: number, cy: number, s: number, color: string) => void;
+  /** Small caption at the top of the back, e.g. "CHOLA". */
+  title?: string;
+  /** Public-domain photo shown in the arch on the card back (see public/cards/dynasty/CREDITS.md). */
+  photo?: string;
+  /** Point of the photo to centre in the arch (0..1 across and down) and how far to zoom in. */
+  focus?: [number, number, number];
+};
+
+const photos = new Map<string, HTMLImageElement>();
+/** Load once and share; the same element is reused by every card back. */
+export function photo(url: string) {
+  let img = photos.get(url);
+  if (!img) {
+    img = new Image();
+    img.src = url;
+    photos.set(url, img);
+  }
+  return img;
+}
+
+/** The photo, cropped to fill the arch window on a card back. */
+function drawPhoto(g: CanvasRenderingContext2D, img: HTMLImageElement, style: TempleStyle) {
+  const cx = W / 2;
+  const cy = H / 2 - 6;
+  g.save();
+  archPath(g, cx, cy, 168, 236);
+  g.clip();
+  const [fx, fy, zoom] = style.focus ?? [0.5, 0.5, 1];
+  const s = Math.max(168 / img.width, 236 / img.height) * zoom;
+  const w = img.width * s;
+  const h = img.height * s;
+  // Centre the focus point, but never pull the photo's edge inside the window.
+  const x = Math.min(cx - 84, Math.max(cx + 84 - w, cx - fx * w));
+  const y = Math.min(cy - 118, Math.max(cy + 118 - h, cy - fy * h));
+  g.drawImage(img, x, y, w, h);
+  // A warm wash ties a black-and-white photo or an aquatint into the card's colours.
+  g.fillStyle = "rgba(120,60,10,0.15)";
+  g.fillRect(0, 0, W, H);
+  g.restore();
+  archPath(g, cx, cy, 168, 236);
+  g.lineWidth = 6;
+  g.strokeStyle = GOLD;
+  g.stroke();
+  // The emblem as a small seal at the foot of the arch.
+  g.beginPath();
+  g.arc(cx, cy + 108, 26, 0, Math.PI * 2);
+  g.fillStyle = style.back[1];
+  g.fill();
+  g.lineWidth = 3;
+  g.stroke();
+  style.emblem(g, cx, cy + 108, 0.27, style.back[1]);
+}
 
 function kolam(g: CanvasRenderingContext2D, color: string, alpha: number) {
   g.save();
@@ -237,12 +298,12 @@ function kalasam(g: CanvasRenderingContext2D, cx: number, y: number) {
   g.fillRect(cx - 16, y + 8, 32, 5);
 }
 
-export function legendFace(f: Face): HTMLCanvasElement {
+export function legendFace(f: Face, style: TempleStyle = LEGENDS): HTMLCanvasElement {
   const dark = isDarkFace(f);
   const [c, g] = base(GOLD);
   const fill = HEX[f.color];
   rounded(g, 9, 9, W - 18, H - 18, 18);
-  const col = f.color === "wild" ? (dark ? "#2a0a14" : "#4a0f1c") : fill;
+  const col = f.color === "wild" ? style.wild[dark ? 1 : 0] : fill;
   const grad = g.createRadialGradient(W / 2, H / 2, 40, W / 2, H / 2, H * 0.62);
   grad.addColorStop(0, shade(col, 0.08));
   grad.addColorStop(1, shade(col, -0.45));
@@ -281,7 +342,7 @@ export function legendFace(f: Face): HTMLCanvasElement {
   g.lineJoin = "round";
   g.strokeStyle = f.color === "wild" ? "#3a0b14" : GOLD;
   g.fillStyle = f.color === "wild" ? "#fdf3dc" : shade(fill, -0.15);
-  if (sym === "W") lotus(g, cx, cy + 10, 0.62, "#fdf3dc");
+  if (sym === "W") style.emblem(g, cx, cy + 10, 0.62, "#fdf3dc");
   else {
     centreText(g, sym, (px) => `700 ${px}px ${SERIF}`, cy + 12);
     if (sym === "6" || sym === "9") underline(g, cx, cy + 60, g.fillStyle as string);
@@ -297,7 +358,7 @@ export function legendFace(f: Face): HTMLCanvasElement {
   return c;
 }
 
-function lotus(g: CanvasRenderingContext2D, cx: number, cy: number, s: number, color: string) {
+export function lotus(g: CanvasRenderingContext2D, cx: number, cy: number, s: number, color: string) {
   g.save();
   g.translate(cx, cy);
   g.scale(s, s);
@@ -322,12 +383,12 @@ function lotus(g: CanvasRenderingContext2D, cx: number, cy: number, s: number, c
   g.restore();
 }
 
-export function legendBack(): HTMLCanvasElement {
+export function legendBack(style: TempleStyle = LEGENDS): HTMLCanvasElement {
   const [c, g] = base(GOLD);
   rounded(g, 9, 9, W - 18, H - 18, 18);
   const grad = g.createRadialGradient(W / 2, H / 2, 30, W / 2, H / 2, H * 0.6);
-  grad.addColorStop(0, "#7a1626");
-  grad.addColorStop(1, "#3a0812");
+  grad.addColorStop(0, style.back[0]);
+  grad.addColorStop(1, style.back[1]);
   g.fillStyle = grad;
   g.fill();
   g.save();
@@ -338,17 +399,33 @@ export function legendBack(): HTMLCanvasElement {
   g.lineWidth = 2;
   g.strokeStyle = GOLD;
   g.stroke();
-  g.beginPath();
-  g.arc(W / 2, H / 2, 70, 0, Math.PI * 2);
-  g.fillStyle = "#3a0812";
-  g.fill();
-  g.lineWidth = 4;
-  g.stroke();
-  lotus(g, W / 2, H / 2, 0.72, "#3a0812");
+  const centre = () => {
+    g.beginPath();
+    g.arc(W / 2, H / 2, 70, 0, Math.PI * 2);
+    g.fillStyle = style.back[1];
+    g.fill();
+    g.lineWidth = 4;
+    g.strokeStyle = GOLD;
+    g.stroke();
+    style.emblem(g, W / 2, H / 2, 0.72, style.back[1]);
+  };
+  const img = style.photo ? photo(style.photo) : null;
+  if (img?.complete && img.naturalWidth) drawPhoto(g, img, style);
+  else {
+    centre();
+    // Emblem now, photo as soon as it arrives. A failed load just keeps the emblem.
+    if (img) repaintLater.set(c, img.decode().then(() => drawPhoto(g, img, style), () => {}));
+  }
   g.textAlign = "center";
   g.textBaseline = "middle";
   g.fillStyle = GOLD;
   g.font = `700 22px ${SERIF}`;
   g.fillText("W I L D C A R D", W / 2, H - 46);
+  if (style.title) {
+    g.font = `700 18px ${SERIF}`;
+    g.fillText(style.title.split("").join(" "), W / 2, 48);
+  }
   return c;
 }
+
+const LEGENDS: TempleStyle = { wild: ["#4a0f1c", "#2a0a14"], back: ["#7a1626", "#3a0812"], emblem: lotus };

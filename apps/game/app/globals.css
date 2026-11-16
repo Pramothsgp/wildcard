@@ -16,9 +16,10 @@
 
 /* Player name tags floating over the 3D table (CSS2DRenderer). */
 .seat-tag {
+  position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
+  gap: 8px;
   padding: 5px 14px;
   border-radius: 10px;
   background: linear-gradient(180deg, rgb(28 20 14 / 0.82), rgb(10 7 5 / 0.82));
@@ -31,6 +32,41 @@
   backdrop-filter: blur(6px);
   transition: transform 0.2s, box-shadow 0.2s;
 }
+.seat-info { display: flex; flex-direction: column; align-items: center; }
+.seat-avatar { width: 34px; height: 34px; border-radius: 9999px; }
+.seat-avatar[hidden] { display: none; }
+/* Reaction bubble above the tag; fades out on its own. */
+.seat-bubble {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  padding: 4px 12px;
+  border-radius: 9999px;
+  background: #f6ecd8;
+  color: #1a1208;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.4);
+  animation: bubble 4.5s ease-out forwards;
+}
+.seat-bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 100%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #f6ecd8;
+}
+@keyframes bubble {
+  0% { opacity: 0; transform: translate(-50%, 6px) scale(0.8); }
+  8% { opacity: 1; transform: translate(-50%, 0) scale(1.05); }
+  14% { transform: translate(-50%, 0) scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -6px); }
+}
 .seat-tag b { font-size: 14px; letter-spacing: 0.04em; font-weight: 600; }
 .seat-tag span { color: rgb(230 210 170 / 0.6); font-size: 11px; letter-spacing: 0.02em; }
 .seat-tag.is-turn {
@@ -42,5 +78,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .seat-tag { transition: none; }
+  .seat-bubble { animation: none; }
   .animate-pulse { animation: none; }
 }

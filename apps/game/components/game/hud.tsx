@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { FIELD_HINTS, RULE_INFO, type Toggle, ordinal } from "@/game/help";
-import { MODES, type ModeId, type Rules, ruleChanges } from "@/game/modes";
+import { BOT_LEVELS, type BotLevel, MODES, type ModeId, type Rules, ruleChanges } from "@/game/modes";
 import type { Action, RoomView } from "@/game/protocol";
 import { THEMES, type ThemeId } from "@/game/themes";
 import { send } from "@/lib/socket";
 import { HEX, backDataUrl, faceDataUrl } from "./card-art";
 import { FieldOption, RuleOption } from "./rules";
+import { AvatarPicker } from "./social";
+
 import { isMuted, setMuted } from "./sound";
 
 // Dark lacquer panels with a gold hairline, to match the table.
@@ -255,6 +257,11 @@ export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => v
           </ul>
         </section>
 
+        <section>
+          <h2 className="mb-2 text-sm font-bold text-white/70">Your avatar</h2>
+          <AvatarPicker room={room} />
+        </section>
+
         <section className="space-y-3">
           <h2 className="text-sm font-bold text-white/70">Game mode</h2>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -292,6 +299,19 @@ export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => v
             </FieldOption>
             <FieldOption hint={FIELD_HINTS.maxPlayers}>
               <NumberField label="Max players" value={room.maxPlayers} disabled={!host} step={1} onChange={(v) => set({ maxPlayers: v })} />
+            </FieldOption>
+            <FieldOption hint={FIELD_HINTS.botLevel}>
+              <label className="flex items-center justify-between gap-2 font-semibold">
+                Bot skill
+                <select
+                  disabled={!host}
+                  value={room.rules.botLevel ?? "normal"}
+                  onChange={(e) => set({ rules: { botLevel: e.target.value as BotLevel } })}
+                  className="rounded-lg bg-white/10 px-2 py-1 capitalize outline-none focus:ring-2 focus:ring-amber-300"
+                >
+                  {BOT_LEVELS.map((l) => <option key={l} value={l} className="bg-[#1d150e]">{l}</option>)}
+                </select>
+              </label>
             </FieldOption>
             <FieldOption hint={FIELD_HINTS.isPublic}>
               <label className="flex items-center gap-2 font-semibold">

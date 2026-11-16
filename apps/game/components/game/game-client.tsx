@@ -4,11 +4,13 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DARK_COLORS, LIGHT_COLORS, type Color } from "@/game/cards";
 import type { Action, RoomView, ServerMsg } from "@/game/protocol";
+import { themeOf } from "@/game/themes";
 import { send, useSocket, useSocketStatus } from "@/lib/socket";
 import { ActionBar, Btn, LobbyPanel, Modal, RoundModal, SidePanel, TopBar } from "./hud";
 import { RulesPanel } from "./rules";
 import { HEX } from "./card-art";
 import { TableScene } from "./scene";
+import { ReactionBar } from "./social";
 import { sound } from "./sound";
 
 type Pick = { cardId: number; color?: Color; needColor: boolean; needTarget: boolean };
@@ -45,10 +47,11 @@ export function GameClient({ code }: { code: string }) {
     const g = room?.game;
     prev.current = room;
     if (!g || !p) return;
-    if (g.pile.at(-1)?.id !== p.pile.at(-1)?.id) sound("play");
-    if (g.hand.length > p.hand.length) sound("draw");
-    if (g.turn === room!.you && p.turn !== room!.you && g.phase === "playing") sound("turn");
-    if (g.phase !== "playing" && p.phase === "playing") sound("win");
+    const pack = themeOf(room!.theme).sound;
+    if (g.pile.at(-1)?.id !== p.pile.at(-1)?.id) sound("play", pack);
+    if (g.hand.length > p.hand.length) sound("draw", pack);
+    if (g.turn === room!.you && p.turn !== room!.you && g.phase === "playing") sound("turn", pack);
+    if (g.phase !== "playing" && p.phase === "playing") sound("win", pack);
   }, [room]);
 
   const act = useCallback((action: Action) => send({ t: "act", action }), []);
@@ -100,6 +103,7 @@ export function GameClient({ code }: { code: string }) {
       {room.status === "lobby" && <LobbyPanel room={room} onRules={() => setRules(true)} />}
       {rules && <RulesPanel room={room} onClose={() => setRules(false)} />}
       {g && g.phase === "playing" && room.status === "playing" && <ActionBar room={room} act={act} />}
+      {room.status === "playing" && <ReactionBar pack={themeOf(room.theme).sound} />}
       {g && g.phase !== "playing" && <RoundModal room={room} />}
       {room.status === "abandoned" && (
         <Modal title="Table closed">

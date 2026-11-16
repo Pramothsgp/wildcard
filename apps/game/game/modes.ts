@@ -1,5 +1,8 @@
 import type { DeckKind } from "./cards.ts";
 
+export type BotLevel = "easy" | "normal" | "hard";
+export const BOT_LEVELS: BotLevel[] = ["easy", "normal", "hard"];
+
 export type Rules = {
   deck: DeckKind;
   /** Stack draw cards of equal or higher value onto a pending draw. */
@@ -16,6 +19,8 @@ export type Rules = {
   mercy: boolean;
   /** When someone goes out, the rest keep playing for the places. */
   playOn: boolean;
+  /** How well the bots play. */
+  botLevel: BotLevel;
   handSize: number;
   /** Match ends when someone reaches this. 0 = single round. */
   targetScore: number;
@@ -31,6 +36,7 @@ const base: Rules = {
   challenge: true,
   mercy: false,
   playOn: false,
+  botLevel: "normal",
   handSize: 7,
   targetScore: 500,
   turnSeconds: 30,
@@ -74,6 +80,7 @@ export function sanitizeRules(mode: ModeId, input: unknown): Rules {
   for (const key of ["stacking", "sevenZero", "jumpIn", "drawToMatch", "challenge", "mercy", "playOn"] as const) {
     if (typeof o[key] === "boolean") rules[key] = o[key];
   }
+  if (o.botLevel === "easy" || o.botLevel === "normal" || o.botLevel === "hard") rules.botLevel = o.botLevel;
   rules.handSize = num(o.handSize, 3, 12, rules.handSize);
   rules.targetScore = num(o.targetScore, 0, 5000, rules.targetScore);
   rules.turnSeconds = num(o.turnSeconds, 5, 120, rules.turnSeconds);

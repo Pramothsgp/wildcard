@@ -2,7 +2,8 @@ import { SignOutButton } from "@repo/auth/components";
 import { getSession } from "@repo/auth/next";
 import Link from "next/link";
 import { Lobby } from "@/components/lobby";
-import { leaderboard, liveRoomFor, statsFor } from "@/game/store";
+import { ACHIEVEMENTS, type AchievementId } from "@/game/help";
+import { achievementsFor, leaderboard, liveRoomFor, statsFor } from "@/game/store";
 import { auth } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,12 @@ export default async function Home() {
     );
   }
 
-  const [live, stats, top] = await Promise.all([liveRoomFor(session.user.id), statsFor(session.user.id), leaderboard(5)]);
+  const [live, stats, top, earned] = await Promise.all([
+    liveRoomFor(session.user.id), statsFor(session.user.id), leaderboard(5), achievementsFor(session.user.id),
+  ]);
+  const unlocked = new Set<string>(earned);
+  if ((stats?.roundsWon ?? 0) > 0) unlocked.add("firstWin");
+  if ((stats?.matchesWon ?? 0) > 0) unlocked.add("matchWin");
 
   return (
     <main className="mx-auto max-w-6xl space-y-6 px-4 py-8 text-white">
@@ -64,6 +70,23 @@ export default async function Home() {
             <p className="text-3xl font-black">{value}</p>
           </div>
         ))}
+      </section>
+
+      <section aria-label="Achievements" className="rounded-2xl border border-amber-300/20 bg-white/[0.04] p-4">
+        <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-amber-200/80">
+          Achievements · {unlocked.size}/{Object.keys(ACHIEVEMENTS).length}
+        </h2>
+        <ul className="grid gap-2 sm:grid-cols-5">
+          {(Object.keys(ACHIEVEMENTS) as AchievementId[]).map((id) => {
+            const on = unlocked.has(id);
+            return (
+              <li key={id} className={`rounded-xl p-3 text-xs ${on ? "bg-gradient-to-b from-[#f3d27a]/25 to-[#c9973a]/10 ring-1 ring-amber-300/60" : "bg-white/5 opacity-60"}`}>
+                <b className={`block text-sm ${on ? "text-amber-100" : "text-white/70"}`}>{on ? "★ " : ""}{ACHIEVEMENTS[id].title}</b>
+                <span className="text-white/60">{ACHIEVEMENTS[id].detail}</span>
+              </li>
+            );
+          })}
+        </ul>
       </section>
 
       <Lobby userName={session.user.name} />

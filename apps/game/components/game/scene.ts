@@ -9,6 +9,9 @@ import type { ThemeId } from "@/game/themes";
 import { ordinal } from "@/game/help";
 import { HEX, backTexture, faceTexture, setAnisotropy } from "./card-art";
 import { buildStage } from "./stage";
+import { Confetti } from "./effects";
+import { avatarUrl } from "./avatars";
+import { REACTION_MS } from "@/game/help";
 
 const CARD_W = 1;
 const CARD_H = 1.5;
@@ -22,7 +25,14 @@ const PILE_WIDE = new THREE.Vector3(0.9, 0.06, -0.1);
 const DECK_TALL = new THREE.Vector3(0, 0.06, -1.7);
 const PILE_TALL = new THREE.Vector3(0, 0.06, 0.4);
 
-type CardObj = { group: THREE.Group; front: THREE.Mesh; glow?: THREE.Mesh; shade?: THREE.Mesh; target: THREE.Vector3; rot: THREE.Quaternion; faceKey: string; seen: boolean };
+type CardObj = {
+  group: THREE.Group; front: THREE.Mesh; glow?: THREE.Mesh; shade?: THREE.Mesh; trail: THREE.Mesh;
+  target: THREE.Vector3; rot: THREE.Quaternion; faceKey: string; seen: boolean;
+  /** The winning card: eases in slowly, like a slow-motion replay. */
+  slow?: boolean;
+};
+/** A floating seat tag: avatar, name and meta, plus a reaction bubble that outlives re-renders. */
+type Seat = { anchor: THREE.Object3D; label: CSS2DObject; el: HTMLDivElement; info: HTMLDivElement; avatar: HTMLImageElement; bubble: HTMLDivElement | null; bubbleAt: number };
 type Callbacks = { onPlay: (cardId: number) => void; onDraw: () => void };
 
 const planeGeo = new THREE.PlaneGeometry(CARD_W, CARD_H);
@@ -73,7 +83,7 @@ export class TableScene {
   private scene = new THREE.Scene();
   private camera = new THREE.PerspectiveCamera(42, 1, 0.1, 600);
   private cards = new Map<string, CardObj>();
-  private seats = new Map<string, { anchor: THREE.Object3D; label: CSS2DObject; el: HTMLDivElement }>();
+  private seats = new Map<string, Seat>();
   private ring: THREE.Mesh;
   private deck: THREE.Mesh;
   private raycaster = new THREE.Raycaster();
@@ -85,6 +95,9 @@ export class TableScene {
   private frame = 0;
   private resizeObs: ResizeObserver;
   private portrait = false;
+  /** Soft light that follows a card while it flies. */
+  private trailMat = new THREE.MeshBasicMaterial({ map: glowTexture(), color: "#fff2c8", transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending });
+  private confetti!: Confetti;
   private glowMat = new THREE.MeshBasicMaterial({ map: glowTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   private shadeMat = new THREE.MeshBasicMaterial({ color: "#000", map: shadeTexture(), transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false });
   private mustDraw = false;
@@ -108,6 +121,8 @@ export class TableScene {
     host.appendChild(this.labels.domElement);
 
     this.stage = buildStage(this.renderer, this.scene);
+    this.stage.setTheme(this.theme);
+    this.confetti = new Confetti(this.scene);
     this.envTex = this.stage.envTex;
 
     // Drag to orbit, wheel or pinch to zoom, right-drag or two fingers to pan.
@@ -238,11 +253,16 @@ export class TableScene {
       back.rotation.y = Math.PI;
       front.castShadow = back.castShadow = true;
       front.userData.key = key;
-      group.add(front, back);
+      const trail = new THREE.Mesh(glowGeo, this.trailMat);
+      trail.position.z = -0.02;
+      trail.renderOrder = -2;
+      trail.visible = false;
+      trail.userData.shared = true;
+      group.add(front, back, trail);
       group.position.copy(spawn);
       group.rotation.x = -Math.PI / 2;
       this.scene.add(group);
-      c = { group, front, target: spawn.clone(), rot: group.quaternion.clone(), faceKey, seen: true };
+      c = { group, front, trail, target: spawn.clone(), rot: group.quaternion.clone(), faceKey, seen: true };
       this.cards.set(key, c);
     } else if (c.faceKey !== faceKey) {
       (c.front.material as THREE.MeshStandardMaterial).map = f ? faceTexture(f, this.theme) : backTexture(this.theme);
@@ -267,6 +287,7 @@ export class TableScene {
     if (theme !== this.theme) {
       // New card art: drop every card so it is rebuilt with the theme's textures.
       this.theme = theme;
+      this.stage.setTheme(theme);
       (this.deck.material as THREE.MeshStandardMaterial[])[2].map = backTexture(theme);
       for (const c of this.cards.values()) this.scene.remove(c.group);
       this.cards.clear();
@@ -284,36 +305,66 @@ export class TableScene {
       let s = this.seats.get(p.id);
       if (!s) {
         const el = document.createElement("div");
+        const avatar = document.createElement("img");
+        avatar.className = "seat-avatar";
+        avatar.alt = "";
+        const info = document.createElement("div");
+        info.className = "seat-info";
+        el.append(avatar, info);
         const anchor = new THREE.Object3D();
         const label = new CSS2DObject(el);
         anchor.add(label);
         this.scene.add(anchor);
-        s = { anchor, label, el };
+        s = { anchor, label, el, info, avatar, bubble: null, bubbleAt: 0 };
         this.seats.set(p.id, s);
+      }
+      // Newest reaction from this player gets a bubble; the CSS animation fades it out.
+      const react = view.reactions?.findLast((r) => r.id === p.id);
+      if (react && react.at !== s.bubbleAt) {
+        s.bubble?.remove();
+        s.bubble = document.createElement("div");
+        s.bubble.className = "seat-bubble";
+        s.bubble.textContent = react.text;
+        s.el.append(s.bubble);
+        s.bubbleAt = react.at;
+        const b = s.bubble;
+        setTimeout(() => b.remove(), REACTION_MS);
       }
       const at = seatOf.get(p.id)!;
       s.anchor.position.set(at.x * (this.portrait ? 1 : 1.12), 0.3, at.z * 1.12);
-      // Your own info lives in the action bar; a tag here would sit on your hand.
-      s.label.visible = !(i === 0 && g);
+      // Your own info lives in the action bar; a tag here would sit on your hand, so it only
+      // shows while your reaction bubble is up.
+      s.label.visible = !(i === 0 && g) || (!!s.bubble?.isConnected);
+      s.avatar.hidden = !p.avatar;
+      if (p.avatar) s.avatar.src = avatarUrl(p.avatar);
       const turn = g?.turn === p.id && g.phase === "playing";
       s.el.className = `seat-tag${turn ? " is-turn" : ""}${p.out ? " is-out" : ""}${!p.connected ? " is-away" : ""}`;
-      s.el.innerHTML = "";
+      s.info.innerHTML = "";
       const name = document.createElement("b");
       name.textContent = p.id === view.you ? "You" : p.name;
       const meta = document.createElement("span");
       meta.textContent = g ? `${p.count} cards · ${p.score} pts${p.calledUno && p.count <= 1 ? " · WILDCARD!" : ""}${p.place ? ` · ${ordinal(p.place)}` : p.out ? " · out" : ""}${!p.connected ? " · away" : p.auto ? " · autopilot" : ""}` : p.bot ? "bot" : p.connected ? "ready" : "away";
-      s.el.append(name, meta);
+      s.info.append(name, meta);
     });
 
     if (g) {
       // Discard pile, newest on top. A card that just arrived flies in from whoever played it.
       const playedBy = prev?.game?.turn;
       const from = (playedBy && seatOf.get(playedBy)) || this.pilePos;
+      const over = g.phase !== "playing";
+      if (over && prev?.game?.phase === "playing") this.confetti.burst();
       g.pile.forEach((c, i) => {
         const obj = this.card(`c${c.id}`, c.face, from.clone().setY(0.6));
         // A card you just played keeps its hand glow or veil otherwise.
         if (obj.glow) obj.glow.visible = false;
         if (obj.shade) obj.shade.visible = false;
+        // The winning card rises over the pile and turns to face you.
+        obj.slow = over && i === g.pile.length - 1;
+        if (obj.slow) {
+          obj.target.set(this.pilePos.x, 1.8, this.pilePos.z + 0.6);
+          obj.rot.setFromEuler(new THREE.Euler(-0.9, 0, 0));
+          return;
+        }
         obj.target.set(this.pilePos.x + (hash(c.id) - 0.5) * 0.35, 0.02 + i * 0.012, this.pilePos.z + (hash(c.id + 7) - 0.5) * 0.35);
         obj.rot.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, (hash(c.id + 3) - 0.5) * 1.2));
       });
@@ -413,9 +464,14 @@ export class TableScene {
       this.hovered = hoverKey;
       if (this.view) this.update(this.view);
     }
+    this.confetti.tick(dt);
+    const slowK = 1 - Math.exp(-dt * 1.6);
     for (const c of this.cards.values()) {
-      c.group.position.lerp(c.target, k);
-      c.group.quaternion.slerp(c.rot, k);
+      const dist = c.group.position.distanceTo(c.target);
+      c.trail.visible = dist > 0.35;
+      if (c.trail.visible) c.trail.scale.setScalar(1 + Math.min(dist, 3) * 0.3);
+      c.group.position.lerp(c.target, c.slow ? slowK : k);
+      c.group.quaternion.slerp(c.rot, c.slow ? slowK : k);
     }
     this.renderer.render(this.scene, this.camera);
     this.labels.render(this.scene, this.camera);

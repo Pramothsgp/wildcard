@@ -55,6 +55,7 @@ export const FIELD_HINTS = {
   handSize: "Cards dealt to each player (usually 7).",
   maxPlayers: "Seats at the table, 2 to 10.",
   isPublic: "Show this table in Open tables. Otherwise join by code or link only.",
+  botLevel: "Easy bots miss plays. Hard bots save wilds and hit whoever is about to win.",
 };
 
 export const CARD_HELP: Partial<Record<Value, string>> = {
@@ -94,6 +95,24 @@ export function deckSpecials(deck: DeckKind): { title: string; faces: Face[] }[]
 }
 
 const f = (color: Face["color"], value: Value): Face => ({ color, value });
+
+/** Badges shown on the lobby. firstWin and matchWin come from results; the rest are game events. */
+export const ACHIEVEMENTS = {
+  firstWin: { title: "First Blood", detail: "Win your first round." },
+  matchWin: { title: "Champion", detail: "Win a whole match." },
+  comeback: { title: "Comeback Kid", detail: "Win a round after holding 15 or more cards." },
+  combo: { title: "Pile On", detail: "Stack a +4 or bigger onto a draw that's already coming." },
+  flawless: { title: "Flawless", detail: "Win a round without drawing a single card." },
+} satisfies Record<string, { title: string; detail: string }>;
+export type AchievementId = keyof typeof ACHIEVEMENTS;
+
+/** Quick reactions a player can send. A fixed list, so nothing typed goes out this way. */
+export const REACTIONS = ["👏", "😂", "😮", "😤", "🔥", "Nice!", "Not again", "GG", "Unlucky", "Wildcard!"] as const;
+export const REACTION_MS = 4500;
+
+/** Avatars: the ten action heroes and four royal emblems. Drawn client-side from the id. */
+export const AVATARS = ["hero0", "hero1", "hero2", "hero3", "hero4", "hero5", "hero6", "hero7", "hero8", "hero9", "bow", "tiger", "fish", "lotus"] as const;
+export type AvatarId = (typeof AVATARS)[number];
 
 /** 1 → "1st", 12 → "12th", 22 → "22nd". */
 export const ordinal = (n: number) => `${n}${n % 100 >= 11 && n % 100 <= 13 ? "th" : (["th", "st", "nd", "rd"][n % 10] ?? "th")}`;

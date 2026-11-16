@@ -4,7 +4,7 @@ import {
   type Card, type Color, type Side, DARK_COLORS, LIGHT_COLORS,
   buildDeck, describe, drawAmount, face, isWild, points,
 } from "./cards.ts";
-import { ordinal } from "./help.ts";
+import { ACHIEVEMENTS, type AchievementId, ordinal } from "./help.ts";
 import type { Rules } from "./modes.ts";
 import type { Action } from "./protocol.ts";
 
@@ -21,6 +21,9 @@ export type Seat = {
   out: boolean;
   /** Finishing position when playing on; null until they go out. */
   place?: number | null;
+  /** Most cards held this round, and whether they drew any (for achievements). */
+  peak?: number;
+  drew?: boolean;
 };
 
 export type GameState = {
@@ -82,7 +85,7 @@ export function startRound(s: GameState): GameEvent[] {
   s.side = "light";
   s.direction = 1;
   Object.assign(s, { pendingDraw: 0, challenge: null, drawn: null, unoTarget: null, roundWinner: null, phase: "playing" });
-  for (const p of s.seats) Object.assign(p, { hand: s.drawPile.splice(0, s.rules.handSize), calledUno: false, out: false, place: null });
+  for (const p of s.seats) Object.assign(p, { hand: s.drawPile.splice(0, s.rules.handSize), calledUno: false, out: false, place: null, peak: s.rules.handSize, drew: false });
   // Start on a number card so nobody gets hit before the first turn.
   let first = s.drawPile.findIndex((c) => /^\d$/.test(c.light.value));
   if (first < 0) first = 0;
@@ -119,6 +122,8 @@ function draw(s: GameState, seat: number, n: number, ev: GameEvent[], why: strin
     if (until?.(card)) break;
   }
   p.hand.push(...got);
+  p.peak = Math.max(p.peak ?? 0, p.hand.length);
+  if (got.length) p.drew = true;
   p.calledUno = false;
   if (s.unoTarget === seat) s.unoTarget = null;
   ev.push({ kind: "draw", seat, text: `${p.name} drew ${got.length}${why ? ` (${why})` : ""}`, data: { cards: got.map((c) => c.id) } });
@@ -307,6 +312,7 @@ function play(s: GameState, seat: number, a: Extract<Action, { type: "play" }>, 
   }
 
   const amount = drawAmount(f);
+  if (amount >= 4 && s.pendingDraw > 0) achieve(s, seat, "combo", ev);
   if (amount) {
     s.pendingDraw += amount;
     if (f.value === "wild4" && s.rules.challenge) s.challenge = { by: seat, prevColor };
@@ -365,6 +371,12 @@ function award(s: GameState, winner: number, ev: GameEvent[]) {
   s.roundWinner = winner;
   s.lastRoundPoints = pts;
   ev.push({ kind: "roundOver", seat: winner, text: `${w.name} wins round ${s.round} (+${pts})`, data: { points: pts } });
+  if ((w.peak ?? 0) >= 15) achieve(s, winner, "comeback", ev);
+  if (w.drew === false) achieve(s, winner, "flawless", ev);
+}
+
+function achieve(s: GameState, seat: number, id: AchievementId, ev: GameEvent[]) {
+  ev.push({ kind: "achievement", seat, text: `${s.seats[seat].name} unlocked ${ACHIEVEMENTS[id].title}`, data: { id } });
 }
 
 /** Playing on: take this seat out with the next place, and close the round when one player is left. */
@@ -387,25 +399,4 @@ function closeRound(s: GameState, ev: GameEvent[]) {
   const over = s.rules.targetScore === 0 || w.score >= s.rules.targetScore;
   s.phase = over ? "matchOver" : "roundOver";
   if (over) ev.push({ kind: "matchOver", seat: s.roundWinner!, text: `${w.name} wins the match with ${w.score} points!` });
-}
-
-/** What the server does for a bot or an absent player. Simple and fast, not clever. */
-export function botAction(s: GameState, seat: number, smart: boolean): Action {
-  const me = s.seats[seat];
-  if (smart && me.hand.length === 2 && !me.calledUno) return { type: "uno" };
-  const playable = me.hand.filter((c) => canPlay(s, c) && (s.drawn === null || c.id === s.drawn));
-  if (!smart && s.drawn === null && !s.pendingDraw) return { type: "draw" };
-  if (playable.length) {
-    // Prefer coloured cards, keep wilds for later.
-    const card = playable.find((c) => !isWild(face(c, s.side))) ?? playable[0];
-    const counts = new Map<Color, number>();
-    for (const c of me.hand) {
-      const col = face(c, s.side).color;
-      if (col !== "wild") counts.set(col, (counts.get(col) ?? 0) + 1);
-    }
-    const color = [...counts].toSorted((x, y) => y[1] - x[1])[0]?.[0] ?? palette(s)[randomInt(4)];
-    const others = s.seats.filter((p, i) => i !== seat && !p.out).toSorted((x, y) => x.hand.length - y.hand.length);
-    return { type: "play", cardId: card.id, color, target: others[0]?.id };
-  }
-  return s.drawn !== null ? { type: "pass" } : { type: "draw" };
 }
