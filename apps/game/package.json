@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "NODE_ENV=production node --env-file-if-exists=.env.local server.ts",
     "lint": "oxlint -c ../../base.oxlintrc.json app lib components game server.ts",
-    "typecheck": "next typegen && tsc --noEmit"
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "bun test game"
   },
   "dependencies": {
     "@repo/auth": "workspace:*",
