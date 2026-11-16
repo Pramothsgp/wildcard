@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Card, Face } from "./cards.ts";
-import { type GameState, act, botAction, canPlay, createGame, startRound } from "./engine.ts";
+import { botAction } from "./bots.ts";
+import { type GameState, act, canPlay, createGame, startRound } from "./engine.ts";
 import { ordinal } from "./help.ts";
 import { MODES, sanitizeRules } from "./modes.ts";
 
@@ -167,7 +168,7 @@ test("bots can always finish a game", () => {
     const s = createGame({ ...MODES[mode].rules, targetScore: 0 }, players(4).map((p) => ({ ...p, bot: true })));
     startRound(s);
     let steps = 0;
-    while (s.phase === "playing" && steps++ < 5000) act(s, s.turn, botAction(s, s.turn, true));
+    while (s.phase === "playing" && steps++ < 5000) act(s, s.turn, botAction(s, s.turn, "normal"));
     expect(s.phase).toBe("matchOver");
   }
 });
@@ -218,11 +219,45 @@ test("play on with bots always finishes", () => {
     const s = createGame({ ...MODES[mode].rules, targetScore: 0, playOn: true }, players(5).map((p) => ({ ...p, bot: true })));
     startRound(s);
     let steps = 0;
-    while (s.phase === "playing" && steps++ < 20000) act(s, s.turn, botAction(s, s.turn, true));
+    while (s.phase === "playing" && steps++ < 20000) act(s, s.turn, botAction(s, s.turn, "hard"));
     expect(s.phase).toBe("matchOver");
   }
 });
 
 test("ordinals", () => {
   expect([1, 2, 3, 4, 11, 12, 13, 21, 22].map(ordinal)).toEqual(["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd"]);
+});
+
+test("every bot level finishes a game in every mode", () => {
+  for (const level of ["easy", "normal", "hard", "autopilot"] as const) {
+    for (const mode of Object.keys(MODES) as (keyof typeof MODES)[]) {
+      const s = createGame({ ...MODES[mode].rules, targetScore: 0 }, players(4).map((p) => ({ ...p, bot: true })));
+      startRound(s);
+      let steps = 0;
+      while (s.phase === "playing" && steps++ < 20000) act(s, s.turn, botAction(s, s.turn, level));
+      expect(s.phase).toBe("matchOver");
+    }
+  }
+});
+
+test("hard bots attack a player about to go out", () => {
+  const s = game("classic", 3);
+  const skip = card("red", "skip");
+  rig(s, card("red", "5"), [[card("red", "8"), skip, card("blue", "1")], [card("green", "1")], [card("blue", "2"), card("blue", "3")]]);
+  const a = botAction(s, 0, "hard");
+  expect(a.type === "play" && a.cardId).toBe(skip.id);
+});
+
+test("achievements: comeback, combo and flawless", () => {
+  const s = game("stack", 3);
+  rig(s, card("red", "draw2"), [[card("wild", "wild4"), card("red", "1")], [card("green", "2")], [card("blue", "3")]]);
+  s.pendingDraw = 2;
+  const ev = act(s, 0, { type: "play", cardId: s.seats[0].hand[0].id, color: "red" });
+  expect(ev.some((e) => e.kind === "achievement" && e.data?.id === "combo")).toBe(true);
+
+  const t = game("classic", 2);
+  rig(t, card("red", "5"), [[card("red", "1")], [card("green", "2")]]);
+  t.seats[0].peak = 16;
+  const ev2 = act(t, 0, { type: "play", cardId: t.seats[0].hand[0].id });
+  expect(ev2.filter((e) => e.kind === "achievement").map((e) => e.data?.id).toSorted()).toEqual(["comeback", "flawless"]);
 });

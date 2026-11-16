@@ -34,3 +34,8 @@
 - What: the gold "playable" halo (and the dark veil) stayed on a card after it moved from your hand to the pile.
 - Root cause: the scene reuses one card object as it moves; only the hand loop set the glow and veil visibility, so the pile kept whatever the hand last set.
 - Prevention: when a card object can move between zones, every zone's loop sets all per-card overlays it doesn't want, not only the ones it uses.
+
+## Games could stall forever when two or more players were on autopilot
+- What: autopilot (a human who left or timed out) only ever drew. Two such seats soaked up the whole deck until the draw pile and discard were empty and the remaining players could only shuffle the last couple of cards around, so the round never ended.
+- Root cause: "draw instead of play" was meant to stop autopilot winning for an absent player, but drawing without limit removes cards from circulation.
+- Prevention: anything the server plays on a player's behalf must still shed cards. Autopilot now plays its first valid card and never calls "WILDCARD!" (so others can still catch it). The bot test runs every level, autopilot included, in every mode.

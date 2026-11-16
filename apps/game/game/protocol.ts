@@ -41,7 +41,10 @@ export type PlayerView = {
   place: number | null;
   /** Their actual hand, shown only to players who have already finished. */
   reveal: Face[] | null;
+  avatar: string | null;
 };
+
+export type Reaction = { id: string; text: string; at: number };
 
 export type GameView = {
   phase: "playing" | "roundOver" | "matchOver";
@@ -75,6 +78,8 @@ export type RoomView = RoomSettings & {
   game: GameView | null;
   log: LogLine[];
   chat: ChatLine[];
+  /** Reactions from the last few seconds. */
+  reactions: Reaction[];
 };
 
 export type ClientMsg =
@@ -88,7 +93,9 @@ export type ClientMsg =
   | { t: "start" }
   | { t: "next" }
   | { t: "act"; action: Action }
-  | { t: "chat"; text: string };
+  | { t: "chat"; text: string }
+  | { t: "react"; text: string }
+  | { t: "avatar"; id: string };
 
 export type ServerMsg =
   | { t: "welcome"; you: { id: string; name: string }; activeRoom: string | null }

@@ -104,6 +104,17 @@ export async function statsFor(userId: string) {
   return rows[0];
 }
 
+/** Achievement ids a user has earned in play (firstWin and matchWin come from statsFor). */
+export async function achievementsFor(userId: string) {
+  // ponytail: scans game_event by kind + actor without an index; add one on (actor_id, kind) if this gets slow.
+  const rows = await db
+    .selectDistinct({ id: sql<string>`${gameEvent.data}->>'id'` })
+    .from(gameEvent)
+    .where(and(eq(gameEvent.actorId, userId), eq(gameEvent.kind, "achievement")))
+    .limit(20);
+  return rows.map((r) => r.id);
+}
+
 /** Rooms a user played in, newest first. */
 export function historyFor(userId: string, limit = 30) {
   return db

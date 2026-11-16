@@ -3,6 +3,11 @@ import * as THREE from "three";
 import { type Face, SYMBOL } from "@/game/cards";
 import type { ThemeId } from "@/game/themes";
 import { heroBack, heroFace, legendBack, legendFace } from "./card-themes";
+import { CHERA, CHOLA, PANDYA } from "./card-emblems";
+import { figureBack, figureFace } from "./card-figures";
+import { festivalBack, festivalFace } from "./card-festivals";
+import { fleetBack, fleetFace } from "./card-fleet";
+import { MYTHIC } from "./card-mythic";
 
 export const HEX: Record<string, string> = {
   red: "#e5383b", yellow: "#f4b400", green: "#2fa84f", blue: "#1f7ae0",
@@ -167,10 +172,16 @@ const cache = new Map<string, THREE.Texture>();
 let maxAniso = 4;
 export const setAnisotropy = (n: number) => (maxAniso = n);
 
+/** Canvases that get repainted later (e.g. once a photo loads); their texture refreshes then. */
+export const repaintLater = new WeakMap<HTMLCanvasElement, Promise<unknown>>();
+
 function tex(key: string, draw: () => HTMLCanvasElement) {
   let t = cache.get(key);
   if (!t) {
-    t = new THREE.CanvasTexture(draw());
+    const canvas = draw();
+    t = new THREE.CanvasTexture(canvas);
+    const texture = t;
+    repaintLater.get(canvas)?.then(() => { texture.needsUpdate = true; });
     t.colorSpace = THREE.SRGBColorSpace;
     t.anisotropy = maxAniso;
     cache.set(key, t);
@@ -178,8 +189,18 @@ function tex(key: string, draw: () => HTMLCanvasElement) {
   return t;
 }
 
-const FACES: Record<ThemeId, (f: Face) => HTMLCanvasElement> = { classic: drawFace, heroes: heroFace, legends: legendFace };
-const BACKS: Record<ThemeId, () => HTMLCanvasElement> = { classic: drawBack, heroes: heroBack, legends: legendBack };
+const FACES: Record<ThemeId, (f: Face) => HTMLCanvasElement> = {
+  classic: drawFace, heroes: heroFace, action: (f) => figureFace(f), mythic: (f) => figureFace(f, MYTHIC), fleet: fleetFace,
+  pongal: (f) => festivalFace(f, "pongal"), diwali: (f) => festivalFace(f, "diwali"), christmas: (f) => festivalFace(f, "christmas"),
+  legends: (f) => legendFace(f),
+  chera: (f) => legendFace(f, CHERA), chola: (f) => legendFace(f, CHOLA), pandya: (f) => legendFace(f, PANDYA),
+};
+const BACKS: Record<ThemeId, () => HTMLCanvasElement> = {
+  classic: drawBack, heroes: heroBack, action: () => figureBack(), mythic: () => figureBack(MYTHIC), fleet: fleetBack,
+  pongal: () => festivalBack("pongal"), diwali: () => festivalBack("diwali"), christmas: () => festivalBack("christmas"),
+  legends: () => legendBack(),
+  chera: () => legendBack(CHERA), chola: () => legendBack(CHOLA), pandya: () => legendBack(PANDYA),
+};
 
 export const faceTexture = (f: Face, theme: ThemeId = "classic") => tex(`${theme}|${f.color}:${f.value}`, () => FACES[theme](f));
 export const backTexture = (theme: ThemeId = "classic") => tex(`${theme}|back`, BACKS[theme]);

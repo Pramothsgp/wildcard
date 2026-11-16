@@ -4,16 +4,18 @@
 import { randomInt } from "node:crypto";
 import type { WebSocket } from "ws";
 import { type Color, DARK_COLORS, LIGHT_COLORS, face } from "./cards.ts";
-import { GameError, type GameEvent, type GameState, act, botAction, canPlay, createGame, startRound, topFace } from "./engine.ts";
+import { botAction } from "./bots.ts";
+import { GameError, type GameEvent, type GameState, act, canPlay, createGame, startRound, topFace } from "./engine.ts";
 import { MODES, isModeId, ruleChanges, sanitizeRules } from "./modes.ts";
-import type { Action, ChatLine, ClientMsg, LogLine, RoomSettings, RoomSummary, RoomView, ServerMsg } from "./protocol.ts";
+import { AVATARS, REACTIONS, REACTION_MS } from "./help.ts";
+import type { Action, ChatLine, ClientMsg, LogLine, Reaction, RoomSettings, RoomSummary, RoomView, ServerMsg } from "./protocol.ts";
 import * as store from "./store.ts";
 import { THEMES, botName, isThemeId } from "./themes.ts";
 
-type Member = { id: string; name: string; bot: boolean; left?: boolean };
+type Member = { id: string; name: string; bot: boolean; left?: boolean; avatar?: string };
 type Status = RoomView["status"];
 type Saved = { settings: RoomSettings; hostId: string; members: Member[]; game: GameState | null; seq: number; log: LogLine[]; chat: ChatLine[] };
-export type Conn = { ws: WebSocket; user: { id: string; name: string }; room: string | null; lobby: boolean; tokens: number; lastChat: number };
+export type Conn = { ws: WebSocket; user: { id: string; name: string }; room: string | null; lobby: boolean; tokens: number; lastChat: number; lastReact: number };
 
 // No constructor parameter properties: the server runs on Node's type stripping.
 class Room {
@@ -21,6 +23,8 @@ class Room {
   timer: NodeJS.Timeout | undefined;
   deadline: number | null = null;
   queue: Promise<void> = Promise.resolve();
+  /** Recent reactions. Memory only: they are gone in seconds, so not worth saving. */
+  reactions: Reaction[] = [];
   code: string;
   status: Status;
   s: Saved;
@@ -49,7 +53,7 @@ export async function init() {
 }
 
 export function connect(ws: WebSocket, user: { id: string; name: string }) {
-  const c: Conn = { ws, user, room: null, lobby: false, tokens: 20, lastChat: 0 };
+  const c: Conn = { ws, user, room: null, lobby: false, tokens: 20, lastChat: 0, lastReact: 0 };
   conns.add(c);
   const live = liveRoomOf(user.id);
   send(c, { t: "welcome", you: user, activeRoom: live?.code ?? null });
@@ -143,6 +147,22 @@ function handle(c: Conn, m: ClientMsg) {
       room.s.chat = [...room.s.chat, { id: uid, name: c.user.name, text, at: Date.now() }].slice(-50);
       return commit(room, [{ kind: "chat", text: `${c.user.name}: ${text}`, seat: -1, hidden: true }], uid);
     }
+    case "react": {
+      const text = String(m.text ?? "");
+      if (!(REACTIONS as readonly string[]).includes(text) || Date.now() - c.lastReact < 1000) return;
+      c.lastReact = Date.now();
+      room.reactions = [...room.reactions.filter((x) => Date.now() - x.at < REACTION_MS), { id: uid, text, at: Date.now() }].slice(-20);
+      broadcast(room);
+      // One more push once it has expired, so it disappears for everyone.
+      setTimeout(() => broadcast(room), REACTION_MS + 50).unref();
+      return;
+    }
+    case "avatar": {
+      const member = room.s.members.find((x) => x.id === uid);
+      need(member && (AVATARS as readonly string[]).includes(String(m.id)), "Unknown avatar");
+      member!.avatar = String(m.id);
+      return commit(room, [], uid);
+    }
     case "settings": {
       need(isHost && room.status === "lobby", "Only the host can change settings before the start");
       const prevTheme = room.s.settings.theme;
@@ -162,7 +182,7 @@ function handle(c: Conn, m: ClientMsg) {
       let n = 0;
       while (used.has(botName(theme, n))) n++;
       const name = botName(theme, n);
-      room.s.members.push({ id: `bot-${randomInt(1e9)}`, name, bot: true });
+      room.s.members.push({ id: `bot-${randomInt(1e9)}`, name, bot: true, avatar: `hero${room.s.members.filter((x) => x.bot).length % 10}` });
       return commit(room, [{ kind: "join", text: `${name} sat down`, seat: -1 }], uid);
     }
     case "kick": {
@@ -292,7 +312,7 @@ function schedule(room: Room) {
     if (human && !connected(room, p.id)) p.auto = true;
     const seat = g.turn;
     try {
-      play(room, seat, botAction(g, seat, p.bot));
+      play(room, seat, botAction(g, seat, p.bot ? (g.rules.botLevel ?? "normal") : "autopilot"));
     } catch (err) {
       if (!(err instanceof GameError)) throw err;
       play(room, seat, g.drawn !== null ? { type: "pass" } : { type: "draw" });
@@ -361,6 +381,7 @@ function broadcast(room: Room) {
 
 export function viewFor(room: Room, uid: string): RoomView {
   const { settings, game: g, hostId, members, log, chat } = room.s;
+  const avatarOf = (id: string) => members.find((m) => m.id === id)?.avatar ?? null;
   const other = g?.side === "dark" ? "light" : "dark";
   // Players who are done (playing on) watch with every hand face up.
   const watching = g?.phase === "playing" && !!g.seats.find((p) => p.id === uid)?.place;
@@ -371,8 +392,9 @@ export function viewFor(room: Room, uid: string): RoomView {
         backs: g.rules.deck === "flip" && p.id !== uid ? p.hand.map((c) => face(c, other)) : null,
         place: p.place ?? null,
         reveal: watching && p.id !== uid ? p.hand.map((c) => face(c, g.side)) : null,
+        avatar: avatarOf(p.id),
       }))
-    : members.map((m) => ({ id: m.id, name: m.name, bot: m.bot, auto: false, connected: m.bot || connected(room, m.id), count: 0, score: 0, calledUno: false, out: false, backs: null, place: null, reveal: null }));
+    : members.map((m) => ({ id: m.id, name: m.name, bot: m.bot, auto: false, connected: m.bot || connected(room, m.id), count: 0, score: 0, calledUno: false, out: false, backs: null, place: null, reveal: null, avatar: m.avatar ?? null }));
   let game: RoomView["game"] = null;
   if (g) {
     const mine = g.seats.findIndex((p) => p.id === uid);
@@ -398,7 +420,8 @@ export function viewFor(room: Room, uid: string): RoomView {
       deadline: room.deadline,
     };
   }
-  return { ...settings, theme: settings.theme ?? "classic", code: room.code, status: room.status, hostId, you: uid, players, game, log, chat };
+  const reactions = room.reactions.filter((x) => Date.now() - x.at < REACTION_MS);
+  return { ...settings, theme: settings.theme ?? "classic", code: room.code, status: room.status, hostId, you: uid, players, game, log, chat, reactions };
 }
 
 let lobbyTimer: NodeJS.Timeout | undefined;
