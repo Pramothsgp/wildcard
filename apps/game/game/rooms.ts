@@ -8,6 +8,7 @@ import { GameError, type GameEvent, type GameState, act, botAction, canPlay, cre
 import { MODES, isModeId, ruleChanges, sanitizeRules } from "./modes.ts";
 import type { Action, ChatLine, ClientMsg, LogLine, RoomSettings, RoomSummary, RoomView, ServerMsg } from "./protocol.ts";
 import * as store from "./store.ts";
+import { THEMES, botName, isThemeId } from "./themes.ts";
 
 type Member = { id: string; name: string; bot: boolean; left?: boolean };
 type Status = RoomView["status"];
@@ -32,7 +33,6 @@ class Room {
 
 const rooms = new Map<string, Room>();
 const conns = new Set<Conn>();
-const BOT_NAMES = ["Ace", "Blitz", "Comet", "Dot", "Echo", "Fizz", "Gizmo", "Hex", "Ivy", "Jinx"];
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 const send = (c: Conn, m: ServerMsg) => c.ws.readyState === 1 && c.ws.send(JSON.stringify(m));
@@ -96,7 +96,7 @@ function handle(c: Conn, m: ClientMsg) {
       leaveLobbyRoom(uid);
       need(!liveRoomOf(uid), "Finish or leave your current game first");
       const code = newCode();
-      const settings = cleanSettings(m.settings, { name: `${c.user.name}'s table`, mode: "classic", isPublic: true, maxPlayers: 6, rules: MODES.classic.rules });
+      const settings = cleanSettings(m.settings, { name: `${c.user.name}'s table`, mode: "classic", isPublic: true, maxPlayers: 6, rules: MODES.classic.rules, theme: "classic" });
       const room = new Room(code, "lobby", { settings, hostId: uid, members: [{ id: uid, name: c.user.name, bot: false }], game: null, seq: 0, log: [], chat: [] });
       rooms.set(code, room);
       attach(c, room);
@@ -145,17 +145,23 @@ function handle(c: Conn, m: ClientMsg) {
     }
     case "settings": {
       need(isHost && room.status === "lobby", "Only the host can change settings before the start");
+      const prevTheme = room.s.settings.theme;
       room.s.settings = cleanSettings(m.settings, room.s.settings);
       need(room.s.members.length <= room.s.settings.maxPlayers, "More players seated than that");
+      // Bots take names from the theme, so a new theme renames them.
+      if (room.s.settings.theme !== prevTheme) room.s.members.filter((x) => x.bot).forEach((b, i) => (b.name = botName(room.s.settings.theme, i)));
       const extra = ruleChanges(room.s.settings.mode, room.s.settings.rules);
-      const text = `Rules: ${MODES[room.s.settings.mode].name}${extra.length ? `, ${extra.join(", ")}` : ""}`;
+      const text = `Rules: ${MODES[room.s.settings.mode].name}${extra.length ? `, ${extra.join(", ")}` : ""} · ${THEMES[room.s.settings.theme].name} cards`;
       return commit(room, [{ kind: "settings", text, seat: -1 }], uid);
     }
     case "addBot": {
       need(isHost && room.status === "lobby", "Only the host can add bots");
       need(room.s.members.length < room.s.settings.maxPlayers, "Table is full");
       const used = new Set(room.s.members.map((x) => x.name));
-      const name = `${BOT_NAMES.find((n) => !used.has(`${n} (bot)`)) ?? "Bot"} (bot)`;
+      const theme = room.s.settings.theme;
+      let n = 0;
+      while (used.has(botName(theme, n))) n++;
+      const name = botName(theme, n);
       room.s.members.push({ id: `bot-${randomInt(1e9)}`, name, bot: true });
       return commit(room, [{ kind: "join", text: `${name} sat down`, seat: -1 }], uid);
     }
@@ -356,13 +362,17 @@ function broadcast(room: Room) {
 export function viewFor(room: Room, uid: string): RoomView {
   const { settings, game: g, hostId, members, log, chat } = room.s;
   const other = g?.side === "dark" ? "light" : "dark";
+  // Players who are done (playing on) watch with every hand face up.
+  const watching = g?.phase === "playing" && !!g.seats.find((p) => p.id === uid)?.place;
   const players = g
     ? g.seats.map((p) => ({
         id: p.id, name: p.name, bot: p.bot, auto: p.auto, connected: p.bot || connected(room, p.id),
         count: p.hand.length, score: p.score, calledUno: p.calledUno, out: p.out,
         backs: g.rules.deck === "flip" && p.id !== uid ? p.hand.map((c) => face(c, other)) : null,
+        place: p.place ?? null,
+        reveal: watching && p.id !== uid ? p.hand.map((c) => face(c, g.side)) : null,
       }))
-    : members.map((m) => ({ id: m.id, name: m.name, bot: m.bot, auto: false, connected: m.bot || connected(room, m.id), count: 0, score: 0, calledUno: false, out: false, backs: null }));
+    : members.map((m) => ({ id: m.id, name: m.name, bot: m.bot, auto: false, connected: m.bot || connected(room, m.id), count: 0, score: 0, calledUno: false, out: false, backs: null, place: null, reveal: null }));
   let game: RoomView["game"] = null;
   if (g) {
     const mine = g.seats.findIndex((p) => p.id === uid);
@@ -388,7 +398,7 @@ export function viewFor(room: Room, uid: string): RoomView {
       deadline: room.deadline,
     };
   }
-  return { ...settings, code: room.code, status: room.status, hostId, you: uid, players, game, log, chat };
+  return { ...settings, theme: settings.theme ?? "classic", code: room.code, status: room.status, hostId, you: uid, players, game, log, chat };
 }
 
 let lobbyTimer: NodeJS.Timeout | undefined;
@@ -427,7 +437,8 @@ function cleanSettings(input: Partial<RoomSettings> | undefined, prev: RoomSetti
   const name = typeof i.name === "string" && i.name.trim() ? i.name.trim().slice(0, 40) : prev.name;
   const maxPlayers = typeof i.maxPlayers === "number" ? Math.min(10, Math.max(2, Math.round(i.maxPlayers))) : prev.maxPlayers;
   const rules = sanitizeRules(mode, i.rules ?? (mode === prev.mode ? prev.rules : undefined));
-  return { name, mode, rules, maxPlayers, isPublic: typeof i.isPublic === "boolean" ? i.isPublic : prev.isPublic };
+  const theme = isThemeId(i.theme) ? i.theme : prev.theme ?? "classic";
+  return { name, mode, rules, maxPlayers, theme, isPublic: typeof i.isPublic === "boolean" ? i.isPublic : prev.isPublic };
 }
 
 const COLORS = new Set<string>([...LIGHT_COLORS, ...DARK_COLORS]);

@@ -2,8 +2,11 @@
 // the render loop eases every card toward its target, which gives all the animation.
 import * as THREE from "three";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import type { Face } from "@/game/cards";
 import type { RoomView } from "@/game/protocol";
+import type { ThemeId } from "@/game/themes";
+import { ordinal } from "@/game/help";
 import { HEX, backTexture, faceTexture, setAnisotropy } from "./card-art";
 
 const CARD_W = 1;
@@ -52,6 +55,29 @@ function shadeTexture() {
   g.fill();
   return new THREE.CanvasTexture(c);
 }
+/** Walnut grain for the table edge: dark streaks running around the circumference. */
+function woodTexture() {
+  const c = document.createElement("canvas");
+  c.width = 1024;
+  c.height = 64;
+  const g = c.getContext("2d")!;
+  g.fillStyle = "#c8946a";
+  g.fillRect(0, 0, 1024, 64);
+  for (let i = 0; i < 260; i++) {
+    g.strokeStyle = `rgba(${40 + Math.random() * 30},${18 + Math.random() * 14},8,${0.15 + Math.random() * 0.35})`;
+    g.lineWidth = 0.5 + Math.random() * 2;
+    const y = Math.random() * 64;
+    g.beginPath();
+    g.moveTo(0, y);
+    for (let x = 0; x <= 1024; x += 64) g.lineTo(x, y + Math.sin(x * 0.01 + i) * 2);
+    g.stroke();
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = THREE.RepeatWrapping;
+  t.repeat.set(6, 1);
+  return t;
+}
 const mat = (map: THREE.Texture) => new THREE.MeshStandardMaterial({ map, transparent: true, alphaTest: 0.5, roughness: 0.55 });
 
 function hash(n: number) {
@@ -80,11 +106,13 @@ export class TableScene {
   private glowMat = new THREE.MeshBasicMaterial({ map: glowTexture(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending });
   private shadeMat = new THREE.MeshBasicMaterial({ color: "#000", map: shadeTexture(), transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false });
   private mustDraw = false;
+  private envTex: THREE.Texture;
+  private theme: ThemeId = "classic";
   private get deckPos() { return this.portrait ? DECK_TALL : DECK_WIDE; }
   private get pilePos() { return this.portrait ? PILE_TALL : PILE_WIDE; }
 
   constructor(private host: HTMLElement, private cb: Callbacks) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -94,43 +122,82 @@ export class TableScene {
     this.labels.domElement.style.cssText = "position:absolute;inset:0;pointer-events:none";
     host.appendChild(this.labels.domElement);
 
-    this.scene.background = new THREE.Color("#0b1020");
-    this.scene.fog = new THREE.Fog("#0b1020", 18, 34);
-    this.scene.add(new THREE.HemisphereLight("#cfe3ff", "#1a1020", 1.1));
-    const key = new THREE.DirectionalLight("#fff4e0", 2.2);
-    key.position.set(3, 10, 4);
-    key.castShadow = true;
-    key.shadow.mapSize.set(2048, 2048);
-    Object.assign(key.shadow.camera, { left: -8, right: 8, top: 8, bottom: -8 });
-    this.scene.add(key);
+    // A dark room lit by one warm lamp over the table. The room itself is a CSS gradient
+    // behind a transparent canvas; a soft studio environment gives the lacquer and gold
+    // something to reflect.
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    this.envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    pmrem.dispose();
+    this.scene.environment = this.envTex;
+    this.scene.environmentIntensity = 0.25;
+    this.scene.add(new THREE.HemisphereLight("#ffe9c7", "#140c06", 0.35));
+    const lamp = new THREE.SpotLight("#ffe2b0", 480, 0, 0.6, 0.7, 2);
+    lamp.position.set(0, 12, 1);
+    lamp.target.position.set(0, 0, 0.5);
+    lamp.castShadow = true;
+    lamp.shadow.mapSize.set(2048, 2048);
+    lamp.shadow.bias = -0.0004;
+    lamp.shadow.radius = 4;
+    this.scene.add(lamp, lamp.target);
+    // Gentle fill from the player's side so the hand stays readable.
+    const fill = new THREE.DirectionalLight("#fff1dc", 0.6);
+    fill.position.set(0, 6, 12);
+    this.scene.add(fill);
 
-    // Felt table and rim.
+    // Velvet felt with a gold inlay line, a lacquered walnut edge and a padded leather rail.
+    const S = 1024;
     const felt = document.createElement("canvas");
-    felt.width = felt.height = 512;
+    felt.width = felt.height = S;
     const g = felt.getContext("2d")!;
-    const grad = g.createRadialGradient(256, 256, 40, 256, 256, 256);
-    grad.addColorStop(0, "#1d6b5f");
-    grad.addColorStop(1, "#0b3a35");
+    const grad = g.createRadialGradient(S / 2, S / 2, 60, S / 2, S / 2, S / 2);
+    grad.addColorStop(0, "#17604f");
+    grad.addColorStop(0.65, "#0e4638");
+    grad.addColorStop(1, "#072a22");
     g.fillStyle = grad;
-    g.fillRect(0, 0, 512, 512);
-    for (let i = 0; i < 9000; i++) {
-      g.fillStyle = `rgba(255,255,255,${Math.random() * 0.03})`;
-      g.fillRect(Math.random() * 512, Math.random() * 512, 1, 1);
+    g.fillRect(0, 0, S, S);
+    for (let i = 0; i < 60000; i++) {
+      g.fillStyle = Math.random() < 0.5 ? `rgba(255,255,255,${Math.random() * 0.035})` : `rgba(0,0,0,${Math.random() * 0.06})`;
+      g.fillRect(Math.random() * S, Math.random() * S, 1, 1);
     }
+    // Table top radius 6.4 maps to S/2 on the cap texture.
+    const ring = (r: number, w: number, color: string) => {
+      g.strokeStyle = color;
+      g.lineWidth = w;
+      g.beginPath();
+      g.arc(S / 2, S / 2, (r / 6.4) * (S / 2), 0, Math.PI * 2);
+      g.stroke();
+    };
+    ring(5.92, 3, "rgba(212,175,96,0.75)");
+    ring(5.78, 1.5, "rgba(212,175,96,0.45)");
+    ring(3.05, 1.5, "rgba(212,175,96,0.28)");
     const feltTex = new THREE.CanvasTexture(felt);
     feltTex.colorSpace = THREE.SRGBColorSpace;
-    const table = new THREE.Mesh(new THREE.CylinderGeometry(6.4, 6.6, 0.4, 96), [
-      new THREE.MeshStandardMaterial({ color: "#3b2414", roughness: 0.5 }),
-      new THREE.MeshStandardMaterial({ map: feltTex, roughness: 0.95 }),
-      new THREE.MeshStandardMaterial({ color: "#3b2414" }),
+    feltTex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+
+    const wood = new THREE.MeshPhysicalMaterial({ map: woodTexture(), color: "#7a4a2a", roughness: 0.45, clearcoat: 1, clearcoatRoughness: 0.12 });
+    const table = new THREE.Mesh(new THREE.CylinderGeometry(6.4, 6.75, 0.5, 128), [
+      wood,
+      new THREE.MeshPhysicalMaterial({ map: feltTex, roughness: 1, sheen: 0.6, sheenColor: "#2a7a64", sheenRoughness: 0.8 }),
+      wood,
     ]);
-    table.position.y = -0.2;
+    table.position.y = -0.25;
     table.receiveShadow = true;
     this.scene.add(table);
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(6.45, 0.22, 16, 120), new THREE.MeshStandardMaterial({ color: "#5a3a1e", roughness: 0.35, metalness: 0.2 }));
-    rim.rotation.x = Math.PI / 2;
-    rim.position.y = 0.02;
-    this.scene.add(rim);
+    const rail = new THREE.Mesh(
+      new THREE.TorusGeometry(6.62, 0.36, 32, 160),
+      new THREE.MeshPhysicalMaterial({ color: "#2a110c", roughness: 0.55, clearcoat: 0.4, clearcoatRoughness: 0.35, sheen: 0.4, sheenColor: "#6b2a1c" }),
+    );
+    rail.rotation.x = Math.PI / 2;
+    rail.position.y = 0.08;
+    rail.castShadow = rail.receiveShadow = true;
+    this.scene.add(rail);
+    const trim = new THREE.Mesh(
+      new THREE.TorusGeometry(6.24, 0.04, 12, 160),
+      new THREE.MeshStandardMaterial({ color: "#d4af60", metalness: 1, roughness: 0.25 }),
+    );
+    trim.rotation.x = Math.PI / 2;
+    trim.position.y = 0.02;
+    this.scene.add(trim);
 
     // Direction ring: chevrons that spin with play direction, tinted by the current colour.
     const ringCanvas = document.createElement("canvas");
@@ -163,7 +230,7 @@ export class TableScene {
     this.deck = new THREE.Mesh(
       new THREE.BoxGeometry(CARD_W, 1, CARD_H),
       [0, 1, 2, 3, 4, 5].map((i) => i === 2
-        ? new THREE.MeshStandardMaterial({ map: backTexture(), transparent: true, alphaTest: 0.5 })
+        ? new THREE.MeshStandardMaterial({ map: backTexture(this.theme), transparent: true, alphaTest: 0.5 })
         : new THREE.MeshStandardMaterial({ color: "#efe6d0" })),
     );
     this.deck.castShadow = true;
@@ -224,8 +291,8 @@ export class TableScene {
     const faceKey = f ? `${f.color}:${f.value}` : "back";
     if (!c) {
       const group = new THREE.Group();
-      const front = new THREE.Mesh(planeGeo, mat(f ? faceTexture(f) : backTexture()));
-      const back = new THREE.Mesh(planeGeo, mat(backTexture()));
+      const front = new THREE.Mesh(planeGeo, mat(f ? faceTexture(f, this.theme) : backTexture(this.theme)));
+      const back = new THREE.Mesh(planeGeo, mat(backTexture(this.theme)));
       back.rotation.y = Math.PI;
       front.castShadow = back.castShadow = true;
       front.userData.key = key;
@@ -236,7 +303,7 @@ export class TableScene {
       c = { group, front, target: spawn.clone(), rot: group.quaternion.clone(), faceKey, seen: true };
       this.cards.set(key, c);
     } else if (c.faceKey !== faceKey) {
-      (c.front.material as THREE.MeshStandardMaterial).map = f ? faceTexture(f) : backTexture();
+      (c.front.material as THREE.MeshStandardMaterial).map = f ? faceTexture(f, this.theme) : backTexture(this.theme);
       c.faceKey = faceKey;
     }
     c.seen = true;
@@ -254,6 +321,14 @@ export class TableScene {
     const prev = this.view;
     this.view = view;
     this.playable = new Set(g?.playable ?? []);
+    const theme = view.theme ?? "classic";
+    if (theme !== this.theme) {
+      // New card art: drop every card so it is rebuilt with the theme's textures.
+      this.theme = theme;
+      (this.deck.material as THREE.MeshStandardMaterial[])[2].map = backTexture(theme);
+      for (const c of this.cards.values()) this.scene.remove(c.group);
+      this.cards.clear();
+    }
     for (const c of this.cards.values()) c.seen = false;
 
     const players = view.players;
@@ -284,7 +359,7 @@ export class TableScene {
       const name = document.createElement("b");
       name.textContent = p.id === view.you ? "You" : p.name;
       const meta = document.createElement("span");
-      meta.textContent = g ? `${p.count} cards · ${p.score} pts${p.calledUno && p.count <= 1 ? " · WILDCARD!" : ""}${p.out ? " · out" : ""}${!p.connected ? " · away" : p.auto ? " · autopilot" : ""}` : p.bot ? "bot" : p.connected ? "ready" : "away";
+      meta.textContent = g ? `${p.count} cards · ${p.score} pts${p.calledUno && p.count <= 1 ? " · WILDCARD!" : ""}${p.place ? ` · ${ordinal(p.place)}` : p.out ? " · out" : ""}${!p.connected ? " · away" : p.auto ? " · autopilot" : ""}` : p.bot ? "bot" : p.connected ? "ready" : "away";
       s.el.append(name, meta);
     });
 
@@ -294,6 +369,9 @@ export class TableScene {
       const from = (playedBy && seatOf.get(playedBy)) || this.pilePos;
       g.pile.forEach((c, i) => {
         const obj = this.card(`c${c.id}`, c.face, from.clone().setY(0.6));
+        // A card you just played keeps its hand glow or veil otherwise.
+        if (obj.glow) obj.glow.visible = false;
+        if (obj.shade) obj.shade.visible = false;
         obj.target.set(this.pilePos.x + (hash(c.id) - 0.5) * 0.35, 0.02 + i * 0.012, this.pilePos.z + (hash(c.id + 7) - 0.5) * 0.35);
         obj.rot.setFromEuler(new THREE.Euler(-Math.PI / 2, 0, (hash(c.id + 3) - 0.5) * 1.2));
       });
@@ -341,8 +419,10 @@ export class TableScene {
         const count = Math.min(p.count, 30);
         for (let i = 0; i < count; i++) {
           const key = `o${p.id}:${i}`;
-          const obj = this.card(key, p.backs?.[i] ?? null, this.deckPos.clone().setY(0.5));
-          const off = (i - (count - 1) / 2) * Math.min(0.32, 4 / Math.max(1, count));
+          // Once you have finished you watch with every hand face up.
+          const obj = this.card(key, p.reveal?.[i] ?? p.backs?.[i] ?? null, this.deckPos.clone().setY(0.5));
+          // Face-up hands spread wider so every card can be read.
+          const off = (i - (count - 1) / 2) * Math.min(p.reveal ? 0.62 : 0.32, (p.reveal ? 6 : 4) / Math.max(1, count));
           obj.target.set(at.x + Math.cos(facing) * off, 0.03 + i * 0.004, at.z - Math.sin(facing) * off);
           obj.rot.setFromEuler(new THREE.Euler(-Math.PI / 2, facing, 0, "YXZ"));
         }
@@ -403,6 +483,7 @@ export class TableScene {
     this.host.removeEventListener("pointermove", this.onMove);
     this.host.removeEventListener("pointerdown", this.onDown);
     this.host.removeEventListener("pointerleave", this.onLeave);
+    this.envTex.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
     this.labels.domElement.remove();

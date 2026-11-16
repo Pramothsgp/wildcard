@@ -64,8 +64,8 @@ export function RulesPanel({ room, onClose }: { room: RoomView; onClose: () => v
   const on = activeToggles(room.rules);
   const off = (Object.keys(RULE_INFO) as Toggle[]).filter((k) => !on.includes(k));
   const groups = useMemo(
-    () => deckSpecials(room.rules.deck).map((g) => ({ ...g, cards: g.faces.map((f) => ({ f, src: faceDataUrl(f) })) })),
-    [room.rules.deck],
+    () => deckSpecials(room.rules.deck).map((g) => ({ ...g, cards: g.faces.map((f) => ({ f, src: faceDataUrl(f, room.theme) })) })),
+    [room.rules.deck, room.theme],
   );
   return (
     <div className="absolute inset-0 z-40 grid place-items-center bg-black/60 p-3" onClick={onClose}>

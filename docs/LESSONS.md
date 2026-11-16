@@ -29,3 +29,8 @@
 - What: the shared auth form's layout classes (`max-w-sm`, `mt-16`, `space-y-*`) were missing in both apps.
 - Root cause: Tailwind v4 only scans the app's own files plus sources registered with `@source`. `packages/ui` registers itself; `packages/auth` didn't, so classes used only there were never generated.
 - Prevention: every workspace package with Tailwind classes ships a `styles.css` with `@source "./"`, and apps import it.
+
+## A played card kept glowing on the discard pile
+- What: the gold "playable" halo (and the dark veil) stayed on a card after it moved from your hand to the pile.
+- Root cause: the scene reuses one card object as it moves; only the hand loop set the glow and veil visibility, so the pile kept whatever the hand last set.
+- Prevention: when a card object can move between zones, every zone's loop sets all per-card overlays it doesn't want, not only the ones it uses.

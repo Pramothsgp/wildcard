@@ -1,22 +1,24 @@
 // Card faces drawn on a canvas at runtime. Original artwork, no image files or third-party designs.
 import * as THREE from "three";
 import { type Face, SYMBOL } from "@/game/cards";
+import type { ThemeId } from "@/game/themes";
+import { heroBack, heroFace, legendBack, legendFace } from "./card-themes";
 
 export const HEX: Record<string, string> = {
   red: "#e5383b", yellow: "#f4b400", green: "#2fa84f", blue: "#1f7ae0",
   pink: "#ff2e93", teal: "#00a7a0", orange: "#ff7b1a", purple: "#7c3aed",
   wild: "#17171c",
 };
-const DARK = new Set(["pink", "teal", "orange", "purple"]);
-const W = 256;
-const H = 384;
+export const DARK = new Set(["pink", "teal", "orange", "purple"]);
+export const W = 256;
+export const H = 384;
 
-function rounded(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+export function rounded(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
   g.beginPath();
   g.roundRect(x, y, w, h, r);
 }
 
-function base(edge: string): [HTMLCanvasElement, CanvasRenderingContext2D] {
+export function base(edge: string): [HTMLCanvasElement, CanvasRenderingContext2D] {
   const c = document.createElement("canvas");
   c.width = W;
   c.height = H;
@@ -27,7 +29,7 @@ function base(edge: string): [HTMLCanvasElement, CanvasRenderingContext2D] {
   return [c, g];
 }
 
-function pinwheel(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, colors: string[]) {
+export function pinwheel(g: CanvasRenderingContext2D, cx: number, cy: number, r: number, colors: string[]) {
   colors.forEach((col, i) => {
     g.beginPath();
     g.moveTo(cx, cy);
@@ -38,8 +40,12 @@ function pinwheel(g: CanvasRenderingContext2D, cx: number, cy: number, r: number
   });
 }
 
+/** Faces that sit on a dark card edge (Flipside dark side and the nastiest wilds). */
+export const isDarkFace = (f: Face) => DARK.has(f.color) || ["wildColor", "wild6", "wild10", "wildReverse4"].includes(f.value);
+export const WILD_COLS = (dark: boolean) => (dark ? ["#ff2e93", "#00a7a0", "#ff7b1a", "#7c3aed"] : ["#e5383b", "#1f7ae0", "#f4b400", "#2fa84f"]);
+
 function drawFace(f: Face): HTMLCanvasElement {
-  const dark = DARK.has(f.color) || ["wildColor", "wild6", "wild10", "wildReverse4"].includes(f.value);
+  const dark = isDarkFace(f);
   const [c, g] = base(dark ? "#101014" : "#fbfaf6");
   const fill = HEX[f.color];
   // Inner panel with a soft diagonal sheen.
@@ -67,7 +73,7 @@ function drawFace(f: Face): HTMLCanvasElement {
   const cx = W / 2;
   const cy = H / 2;
   if (f.color === "wild") {
-    const cols = dark ? ["#ff2e93", "#00a7a0", "#ff7b1a", "#7c3aed"] : ["#e5383b", "#1f7ae0", "#f4b400", "#2fa84f"];
+    const cols = WILD_COLS(dark);
     g.beginPath();
     g.arc(cx, cy, 92, 0, Math.PI * 2);
     g.fillStyle = "#fff";
@@ -114,7 +120,7 @@ function drawFace(f: Face): HTMLCanvasElement {
   return c;
 }
 
-function underline(g: CanvasRenderingContext2D, x: number, y: number, col: string) {
+export function underline(g: CanvasRenderingContext2D, x: number, y: number, col: string) {
   g.fillStyle = col;
   g.fillRect(x - 26, y, 52, 8);
 }
@@ -151,7 +157,7 @@ function drawBack(): HTMLCanvasElement {
   return c;
 }
 
-function shade(hex: string, amt: number) {
+export function shade(hex: string, amt: number) {
   const n = parseInt(hex.slice(1), 16);
   const ch = (v: number) => Math.round(Math.min(255, Math.max(0, amt < 0 ? v * (1 + amt) : v + (255 - v) * amt)));
   return `rgb(${ch(n >> 16)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
@@ -172,8 +178,12 @@ function tex(key: string, draw: () => HTMLCanvasElement) {
   return t;
 }
 
-export const faceTexture = (f: Face) => tex(`${f.color}:${f.value}`, () => drawFace(f));
-export const backTexture = () => tex("back", drawBack);
+const FACES: Record<ThemeId, (f: Face) => HTMLCanvasElement> = { classic: drawFace, heroes: heroFace, legends: legendFace };
+const BACKS: Record<ThemeId, () => HTMLCanvasElement> = { classic: drawBack, heroes: heroBack, legends: legendBack };
+
+export const faceTexture = (f: Face, theme: ThemeId = "classic") => tex(`${theme}|${f.color}:${f.value}`, () => FACES[theme](f));
+export const backTexture = (theme: ThemeId = "classic") => tex(`${theme}|back`, BACKS[theme]);
 
 /** Small PNG of a face for the HTML overlay (colour picker, log). */
-export const faceDataUrl = (f: Face) => drawFace(f).toDataURL();
+export const faceDataUrl = (f: Face, theme: ThemeId = "classic") => FACES[theme](f).toDataURL();
+export const backDataUrl = (theme: ThemeId = "classic") => BACKS[theme]().toDataURL();

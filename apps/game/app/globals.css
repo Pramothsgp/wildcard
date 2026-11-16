@@ -9,27 +9,35 @@
   --ring: 43 96% 56%;
 }
 
+/* Dark room with a warm pool of lamplight, behind the transparent 3D canvas. */
+.table-room {
+  background:
+    radial-gradient(ellipse 60% 55% at 50% 48%, rgb(120 78 38 / 0.35), transparent 70%),
+    radial-gradient(ellipse 90% 80% at 50% 50%, #1c130c 0%, #0d0906 55%, #040302 100%);
+}
+
 /* Player name tags floating over the 3D table (CSS2DRenderer). */
 .seat-tag {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 4px 12px;
-  border-radius: 12px;
-  background: rgb(0 0 0 / 0.55);
-  border: 1px solid rgb(255 255 255 / 0.12);
-  color: #fff;
+  padding: 5px 14px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgb(28 20 14 / 0.82), rgb(10 7 5 / 0.82));
+  border: 1px solid rgb(212 175 96 / 0.35);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45), inset 0 1px 0 rgb(255 230 180 / 0.08);
+  color: #f6ecd8;
   font-size: 12px;
-  line-height: 1.3;
+  line-height: 1.35;
   white-space: nowrap;
   backdrop-filter: blur(6px);
   transition: transform 0.2s, box-shadow 0.2s;
 }
-.seat-tag b { font-size: 14px; }
-.seat-tag span { color: rgb(255 255 255 / 0.65); }
+.seat-tag b { font-size: 14px; letter-spacing: 0.04em; font-weight: 600; }
+.seat-tag span { color: rgb(230 210 170 / 0.6); font-size: 11px; letter-spacing: 0.02em; }
 .seat-tag.is-turn {
-  border-color: #fbbf24;
-  box-shadow: 0 0 0 2px #fbbf24, 0 0 24px #fbbf24aa;
+  border-color: #d4af60;
+  box-shadow: 0 0 0 1px #d4af60, 0 0 22px rgb(212 175 96 / 0.55), 0 6px 18px rgb(0 0 0 / 0.45);
   transform: scale(1.08);
 }
 .seat-tag.is-away, .seat-tag.is-out { opacity: 0.5; }
