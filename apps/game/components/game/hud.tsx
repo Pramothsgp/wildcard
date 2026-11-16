@@ -2,6 +2,7 @@
 // HTML overlays on top of the 3D table.
 import Link from "next/link";
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { FIELD_HINTS, RULE_INFO, type Toggle, ordinal } from "@/game/help";
 import { BOT_LEVELS, type BotLevel, MODES, type ModeId, type Rules, ruleChanges } from "@/game/modes";
 import type { Action, RoomView } from "@/game/protocol";
@@ -33,20 +34,55 @@ export function Btn({ variant = "primary", className = "", ...p }: React.ButtonH
   );
 }
 
+/** Our own modal (never the browser's): click outside or press Escape to close, focus moves inside. */
 export function Modal({ title, children, onClose }: { title: string; children: ReactNode; onClose?: () => void }) {
-  return (
-    <div className="absolute inset-0 z-30 grid place-items-center bg-black/50 p-4" onClick={onClose}>
-      <div role="dialog" aria-label={title} className={`${glass} w-full max-w-md space-y-4 p-6`} onClick={(e) => e.stopPropagation()}>
+  const box = useRef<HTMLDivElement>(null);
+  // Callers pass a new onClose on every render (the room updates each turn); read it through a ref
+  // so the effect below runs once and focus doesn't jump.
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    // Focus the first button so keyboard users land in the dialog, and give focus back on close.
+    box.current?.querySelector<HTMLElement>("[data-autofocus], button, input, select")?.focus();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close.current?.();
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      before?.focus?.();
+    };
+  }, []);
+  // Portalled to <body> so it sits above every overlay, whichever component opened it.
+  return createPortal(
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 text-white backdrop-blur-[2px]" onClick={onClose}>
+      <div ref={box} role="dialog" aria-modal="true" aria-label={title} className={`${glass} w-full max-w-md space-y-4 p-6`} onClick={(e) => e.stopPropagation()}>
         <h2 className="text-xl font-black">{title}</h2>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
+  );
+}
+
+/** Yes/no question in our own modal. Cancel has focus first, so Enter never confirms by accident. */
+export function ConfirmModal({ title, message, confirmLabel = "Confirm", cancelLabel = "Cancel", danger, onConfirm, onCancel }: {
+  title: string; message: ReactNode; confirmLabel?: string; cancelLabel?: string; danger?: boolean; onConfirm: () => void; onCancel: () => void;
+}) {
+  return (
+    <Modal title={title} onClose={onCancel}>
+      <p className="text-sm leading-relaxed text-amber-50/80">{message}</p>
+      <div className="flex justify-end gap-2">
+        <Btn variant="ghost" data-autofocus onClick={onCancel}>{cancelLabel}</Btn>
+        <Btn variant={danger ? "danger" : "primary"} onClick={onConfirm}>{confirmLabel}</Btn>
+      </div>
+    </Modal>
   );
 }
 
 export function TopBar({ room, status, onRules }: { room: RoomView; status: string; onRules: () => void }) {
   const [copied, setCopied] = useState(false);
   const [muted, setM] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   useEffect(() => {
     setM(isMuted());
   }, []);
@@ -85,20 +121,29 @@ export function TopBar({ room, status, onRules }: { room: RoomView; status: stri
         <Btn
           variant="ghost"
           onClick={() => {
-            if (room.status !== "playing" || confirmLeave()) send({ t: "leave" });
+            // Leaving a running game hands your seat to autopilot, so ask first.
+            if (room.status === "playing") setLeaving(true);
+            else send({ t: "leave" });
           }}
         >
           Leave
         </Btn>
       </div>
+      {leaving && (
+        <ConfirmModal
+          title="Leave the game?"
+          message="Autopilot plays your seat while you're away. You can rejoin from the lobby."
+          confirmLabel="Leave game"
+          cancelLabel="Stay"
+          danger
+          onCancel={() => setLeaving(false)}
+          onConfirm={() => { setLeaving(false); send({ t: "leave" }); }}
+        />
+      )}
     </div>
   );
 }
 
-function confirmLeave() {
-  // A plain confirm is fine here: leaving a running game hands your seat to autopilot.
-  return window.confirm("Leave the game? Autopilot plays your seat. You can rejoin from the lobby.");
-}
 
 export function ActionBar({ room, act }: { room: RoomView; act: (a: Action) => void }) {
   const g = room.game!;
