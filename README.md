@@ -36,3 +36,19 @@ Edit or add files in `packages/data/schema/`, export them from `schema/index.ts`
 Push to `main`: CI lints, typechecks, tests, builds one image per service, pushes them and bumps the dev files in the `deployments` repo. Prod goes through the `promote` workflow there.
 
 A service with special needs (e.g. a custom server) can add its own `apps/<name>/Dockerfile`; CI uses it instead of the root one.
+
+## Wildcard game (`apps/game`)
+
+A 3D multiplayer shedding card game: Three.js table, WebSocket play, Postgres for everything.
+
+- `server.ts` runs Next.js and the `/ws` WebSocket on one port. Run with Node (it strips the types). The service has its own `Dockerfile` for this.
+- `game/engine.ts` holds the rules as pure functions on plain JSON state; `game/engine.test.ts` covers them (`bun run test`).
+- `game/rooms.ts` keeps live rooms in memory and saves the full room snapshot plus new log events to Postgres after every action, before players see the change. On start it reloads every live room, so a crash or deploy resumes games where they were.
+- Closing the tab or losing connection keeps your seat. The turn clock plays for you if you're away on your turn (autopilot); open the site again and the lobby shows a "Rejoin" banner. If every human is offline the game pauses.
+- Modes: Classic, Stack Attack, Seven-O, Jump-In, House Party, Flipside (double-sided deck), Ruthless (168 cards, knock-out at 25), Speed. Each rule can be toggled in the room lobby.
+- Points: winning a round scores the cards left in other hands; winning a match adds 100. Global points are the sum, shown on the leaderboard. Every room's full event log is at `/history/<code>` for the players who sat there.
+- Card artwork is drawn on a canvas at runtime (`components/game/card-art.ts`), an original design. No third-party card art or branding is used.
+
+Tables: `room` (snapshot), `room_member` (who sits where, for rejoin), `game_event` (append-only log), `result` (round and match points).
+
+Live state is in memory, so the game service must run as one instance (`maxScale: 1` and session affinity are already set in the deployments repo). More instances need shared state first.
