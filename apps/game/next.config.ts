@@ -1,10 +1,7 @@
-import path from "node:path";
 import type { NextConfig } from "next";
 
+// Runs behind the custom server in server.ts (WebSockets), so no standalone output.
 const config: NextConfig = {
-  output: "standalone",
-  // Trace files from the monorepo root so workspace packages end up in the standalone build.
-  outputFileTracingRoot: path.resolve(process.cwd(), "../.."),
   transpilePackages: ["@repo/auth", "@repo/data", "@repo/ui"],
   serverExternalPackages: ["pg"],
 };

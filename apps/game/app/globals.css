@@ -1,2 +1,32 @@
 @import "tailwindcss";
 @import "@repo/ui/styles.css";
+
+/* Player name tags floating over the 3D table (CSS2DRenderer). */
+.seat-tag {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: 12px;
+  background: rgb(0 0 0 / 0.55);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+  backdrop-filter: blur(6px);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.seat-tag b { font-size: 14px; }
+.seat-tag span { color: rgb(255 255 255 / 0.65); }
+.seat-tag.is-turn {
+  border-color: #fbbf24;
+  box-shadow: 0 0 0 2px #fbbf24, 0 0 24px #fbbf24aa;
+  transform: scale(1.08);
+}
+.seat-tag.is-away, .seat-tag.is-out { opacity: 0.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .seat-tag { transition: none; }
+  .animate-pulse { animation: none; }
+}
