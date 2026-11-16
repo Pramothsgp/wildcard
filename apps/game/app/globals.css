@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "@repo/ui/styles.css";
+@import "@repo/auth/styles.css";
 
 /* Player name tags floating over the 3D table (CSS2DRenderer). */
 .seat-tag {

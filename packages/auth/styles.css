@@ -1,0 +1,2 @@
+/* Lets Tailwind see the classes used in this package. Apps import this after the ui styles. */
+@source "./";

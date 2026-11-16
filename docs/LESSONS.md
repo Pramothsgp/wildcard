@@ -24,3 +24,8 @@
 - What: the server's "No open table" error was dropped because the page only rendered errors once a room had loaded.
 - Root cause: the error toast lived inside the loaded-room layout.
 - Prevention: every screen that waits on the server must render its error state too.
+
+## Sign-in and sign-up forms rendered unstyled (full width, no spacing)
+- What: the shared auth form's layout classes (`max-w-sm`, `mt-16`, `space-y-*`) were missing in both apps.
+- Root cause: Tailwind v4 only scans the app's own files plus sources registered with `@source`. `packages/ui` registers itself; `packages/auth` didn't, so classes used only there were never generated.
+- Prevention: every workspace package with Tailwind classes ships a `styles.css` with `@source "./"`, and apps import it.
