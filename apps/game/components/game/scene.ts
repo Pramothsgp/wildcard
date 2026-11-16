@@ -2,15 +2,20 @@
 // the render loop eases every card toward its target, which gives all the animation.
 import * as THREE from "three";
 import { CSS2DObject, CSS2DRenderer } from "three/addons/renderers/CSS2DRenderer.js";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { Face } from "@/game/cards";
 import type { RoomView } from "@/game/protocol";
 import type { ThemeId } from "@/game/themes";
 import { ordinal } from "@/game/help";
 import { HEX, backTexture, faceTexture, setAnisotropy } from "./card-art";
+import { buildStage } from "./stage";
 
 const CARD_W = 1;
 const CARD_H = 1.5;
+const MIN_DIST = 5;
+const MAX_DIST = 32;
+// A click that moves further than this (px) was a drag of the camera, not a card pick.
+const DRAG_PX = 6;
 // Side by side on wide screens, stacked on phones where side seats sit close in.
 const DECK_WIDE = new THREE.Vector3(-1.1, 0.06, -0.2);
 const PILE_WIDE = new THREE.Vector3(0.9, 0.06, -0.1);
@@ -55,29 +60,6 @@ function shadeTexture() {
   g.fill();
   return new THREE.CanvasTexture(c);
 }
-/** Walnut grain for the table edge: dark streaks running around the circumference. */
-function woodTexture() {
-  const c = document.createElement("canvas");
-  c.width = 1024;
-  c.height = 64;
-  const g = c.getContext("2d")!;
-  g.fillStyle = "#c8946a";
-  g.fillRect(0, 0, 1024, 64);
-  for (let i = 0; i < 260; i++) {
-    g.strokeStyle = `rgba(${40 + Math.random() * 30},${18 + Math.random() * 14},8,${0.15 + Math.random() * 0.35})`;
-    g.lineWidth = 0.5 + Math.random() * 2;
-    const y = Math.random() * 64;
-    g.beginPath();
-    g.moveTo(0, y);
-    for (let x = 0; x <= 1024; x += 64) g.lineTo(x, y + Math.sin(x * 0.01 + i) * 2);
-    g.stroke();
-  }
-  const t = new THREE.CanvasTexture(c);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = THREE.RepeatWrapping;
-  t.repeat.set(6, 1);
-  return t;
-}
 const mat = (map: THREE.Texture) => new THREE.MeshStandardMaterial({ map, transparent: true, alphaTest: 0.5, roughness: 0.55 });
 
 function hash(n: number) {
@@ -89,7 +71,7 @@ export class TableScene {
   private renderer: THREE.WebGLRenderer;
   private labels = new CSS2DRenderer();
   private scene = new THREE.Scene();
-  private camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+  private camera = new THREE.PerspectiveCamera(42, 1, 0.1, 600);
   private cards = new Map<string, CardObj>();
   private seats = new Map<string, { anchor: THREE.Object3D; label: CSS2DObject; el: HTMLDivElement }>();
   private ring: THREE.Mesh;
@@ -107,6 +89,9 @@ export class TableScene {
   private shadeMat = new THREE.MeshBasicMaterial({ color: "#000", map: shadeTexture(), transparent: true, opacity: 0.8, depthWrite: false, toneMapped: false });
   private mustDraw = false;
   private envTex: THREE.Texture;
+  private stage: ReturnType<typeof buildStage>;
+  private controls: OrbitControls;
+  private downAt: { x: number; y: number } | null = null;
   private theme: ThemeId = "classic";
   private get deckPos() { return this.portrait ? DECK_TALL : DECK_WIDE; }
   private get pilePos() { return this.portrait ? PILE_TALL : PILE_WIDE; }
@@ -122,82 +107,15 @@ export class TableScene {
     this.labels.domElement.style.cssText = "position:absolute;inset:0;pointer-events:none";
     host.appendChild(this.labels.domElement);
 
-    // A dark room lit by one warm lamp over the table. The room itself is a CSS gradient
-    // behind a transparent canvas; a soft studio environment gives the lacquer and gold
-    // something to reflect.
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.envTex = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    pmrem.dispose();
-    this.scene.environment = this.envTex;
-    this.scene.environmentIntensity = 0.25;
-    this.scene.add(new THREE.HemisphereLight("#ffe9c7", "#140c06", 0.35));
-    const lamp = new THREE.SpotLight("#ffe2b0", 480, 0, 0.6, 0.7, 2);
-    lamp.position.set(0, 12, 1);
-    lamp.target.position.set(0, 0, 0.5);
-    lamp.castShadow = true;
-    lamp.shadow.mapSize.set(2048, 2048);
-    lamp.shadow.bias = -0.0004;
-    lamp.shadow.radius = 4;
-    this.scene.add(lamp, lamp.target);
-    // Gentle fill from the player's side so the hand stays readable.
-    const fill = new THREE.DirectionalLight("#fff1dc", 0.6);
-    fill.position.set(0, 6, 12);
-    this.scene.add(fill);
+    this.stage = buildStage(this.renderer, this.scene);
+    this.envTex = this.stage.envTex;
 
-    // Velvet felt with a gold inlay line, a lacquered walnut edge and a padded leather rail.
-    const S = 1024;
-    const felt = document.createElement("canvas");
-    felt.width = felt.height = S;
-    const g = felt.getContext("2d")!;
-    const grad = g.createRadialGradient(S / 2, S / 2, 60, S / 2, S / 2, S / 2);
-    grad.addColorStop(0, "#17604f");
-    grad.addColorStop(0.65, "#0e4638");
-    grad.addColorStop(1, "#072a22");
-    g.fillStyle = grad;
-    g.fillRect(0, 0, S, S);
-    for (let i = 0; i < 60000; i++) {
-      g.fillStyle = Math.random() < 0.5 ? `rgba(255,255,255,${Math.random() * 0.035})` : `rgba(0,0,0,${Math.random() * 0.06})`;
-      g.fillRect(Math.random() * S, Math.random() * S, 1, 1);
-    }
-    // Table top radius 6.4 maps to S/2 on the cap texture.
-    const ring = (r: number, w: number, color: string) => {
-      g.strokeStyle = color;
-      g.lineWidth = w;
-      g.beginPath();
-      g.arc(S / 2, S / 2, (r / 6.4) * (S / 2), 0, Math.PI * 2);
-      g.stroke();
-    };
-    ring(5.92, 3, "rgba(212,175,96,0.75)");
-    ring(5.78, 1.5, "rgba(212,175,96,0.45)");
-    ring(3.05, 1.5, "rgba(212,175,96,0.28)");
-    const feltTex = new THREE.CanvasTexture(felt);
-    feltTex.colorSpace = THREE.SRGBColorSpace;
-    feltTex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
-
-    const wood = new THREE.MeshPhysicalMaterial({ map: woodTexture(), color: "#7a4a2a", roughness: 0.45, clearcoat: 1, clearcoatRoughness: 0.12 });
-    const table = new THREE.Mesh(new THREE.CylinderGeometry(6.4, 6.75, 0.5, 128), [
-      wood,
-      new THREE.MeshPhysicalMaterial({ map: feltTex, roughness: 1, sheen: 0.6, sheenColor: "#2a7a64", sheenRoughness: 0.8 }),
-      wood,
-    ]);
-    table.position.y = -0.25;
-    table.receiveShadow = true;
-    this.scene.add(table);
-    const rail = new THREE.Mesh(
-      new THREE.TorusGeometry(6.62, 0.36, 32, 160),
-      new THREE.MeshPhysicalMaterial({ color: "#2a110c", roughness: 0.55, clearcoat: 0.4, clearcoatRoughness: 0.35, sheen: 0.4, sheenColor: "#6b2a1c" }),
-    );
-    rail.rotation.x = Math.PI / 2;
-    rail.position.y = 0.08;
-    rail.castShadow = rail.receiveShadow = true;
-    this.scene.add(rail);
-    const trim = new THREE.Mesh(
-      new THREE.TorusGeometry(6.24, 0.04, 12, 160),
-      new THREE.MeshStandardMaterial({ color: "#d4af60", metalness: 1, roughness: 0.25 }),
-    );
-    trim.rotation.x = Math.PI / 2;
-    trim.position.y = 0.02;
-    this.scene.add(trim);
+    // Drag to orbit, wheel or pinch to zoom, right-drag or two fingers to pan.
+    this.controls = new OrbitControls(this.camera, host);
+    Object.assign(this.controls, {
+      enableDamping: true, dampingFactor: 0.08, minDistance: MIN_DIST, maxDistance: MAX_DIST,
+      maxPolarAngle: 1.3, screenSpacePanning: false, zoomToCursor: true,
+    });
 
     // Direction ring: chevrons that spin with play direction, tinted by the current colour.
     const ringCanvas = document.createElement("canvas");
@@ -239,6 +157,7 @@ export class TableScene {
 
     host.addEventListener("pointermove", this.onMove);
     host.addEventListener("pointerdown", this.onDown);
+    host.addEventListener("pointerup", this.onUp);
     host.addEventListener("pointerleave", this.onLeave);
     this.resizeObs = new ResizeObserver(() => this.resize());
     this.resizeObs.observe(host);
@@ -256,10 +175,27 @@ export class TableScene {
     const portrait = w / h < 1;
     const changed = portrait !== this.portrait;
     this.portrait = portrait;
-    this.camera.position.set(0, portrait ? 15 : 10.5, portrait ? 11 : 9.2);
-    this.camera.lookAt(0, 0, portrait ? 1.2 : 0.9);
     this.camera.updateProjectionMatrix();
+    // Keep the player's own camera on a plain resize; only re-frame when the layout flips.
+    if (changed || !this.framed) this.resetView();
     if (changed && this.view) this.update(this.view);
+  }
+
+  private framed = false;
+  /** Back to the default seat view. Portrait screens need a higher, further camera to fit the table. */
+  resetView() {
+    this.framed = true;
+    this.camera.position.set(0, this.portrait ? 15 : 10.5, this.portrait ? 11 : 9.2);
+    this.controls.target.set(0, 0, this.portrait ? 1.2 : 0.9);
+    this.controls.update();
+  }
+
+  /** Step the camera toward (factor < 1) or away from (factor > 1) what it looks at. */
+  zoom(factor: number) {
+    const offset = this.camera.position.clone().sub(this.controls.target);
+    offset.setLength(THREE.MathUtils.clamp(offset.length() * factor, MIN_DIST, MAX_DIST));
+    this.camera.position.copy(this.controls.target).add(offset);
+    this.controls.update();
   }
 
   private onMove = (e: PointerEvent) => {
@@ -268,6 +204,12 @@ export class TableScene {
   };
   private onLeave = () => this.pointer.set(9, 9);
   private onDown = (e: PointerEvent) => {
+    this.downAt = { x: e.clientX, y: e.clientY };
+  };
+  private onUp = (e: PointerEvent) => {
+    const d = this.downAt;
+    this.downAt = null;
+    if (!d || e.button !== 0 || Math.hypot(e.clientX - d.x, e.clientY - d.y) > DRAG_PX) return;
     this.onMove(e);
     const hit = this.pick();
     if (hit === "deck") this.cb.onDraw();
@@ -457,6 +399,8 @@ export class TableScene {
     const ringMap = (this.ring.material as THREE.MeshBasicMaterial).map!;
     ringMap.offset.x -= dt * 0.25 * (g?.direction ?? 1);
     const t = this.clock.elapsedTime;
+    this.controls.update();
+    this.stage.tick(dt);
     this.glowMat.opacity = 0.8 + 0.2 * Math.sin(t * 4);
     const top = (this.deck.material as THREE.MeshStandardMaterial[])[2];
     top.emissive.set("#ffb020");
@@ -464,7 +408,7 @@ export class TableScene {
 
     const hit = this.pick();
     const hoverKey = hit?.startsWith("c") ? hit : null;
-    this.host.style.cursor = hit === "deck" || (hoverKey && this.playable.has(Number(hoverKey.slice(1)))) ? "pointer" : "default";
+    this.host.style.cursor = hit === "deck" || (hoverKey && this.playable.has(Number(hoverKey.slice(1)))) ? "pointer" : "grab";
     if (hoverKey !== this.hovered) {
       this.hovered = hoverKey;
       if (this.view) this.update(this.view);
@@ -482,6 +426,8 @@ export class TableScene {
     this.resizeObs.disconnect();
     this.host.removeEventListener("pointermove", this.onMove);
     this.host.removeEventListener("pointerdown", this.onDown);
+    this.host.removeEventListener("pointerup", this.onUp);
+    this.controls.dispose();
     this.host.removeEventListener("pointerleave", this.onLeave);
     this.envTex.dispose();
     this.renderer.dispose();
