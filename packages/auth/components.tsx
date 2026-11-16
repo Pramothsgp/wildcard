@@ -28,13 +28,13 @@ export function AuthForm({
     const password = String(form.get("password"));
     setPending(true);
     setError(null);
-    const { error } =
+    const result =
       mode === "signin"
         ? await authClient.signIn.email({ email, password })
         : await authClient.signUp.email({ email, password, name: String(form.get("name")) });
     setPending(false);
-    if (error) {
-      setError(error.message ?? "Something went wrong. Try again.");
+    if (result.error) {
+      setError(result.error.message ?? "Something went wrong. Try again.");
       return;
     }
     router.push("/");
