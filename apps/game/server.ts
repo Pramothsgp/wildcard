@@ -22,7 +22,8 @@ const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
 const server = createServer((req, res) => void handle(req, res));
 
 server.on("upgrade", async (req, socket, head) => {
-  if (!req.url?.startsWith("/ws")) return nextUpgrade(req, socket, head);
+  // Under /api so no page route (like /[game]) can match it and take the upgrade.
+  if (!req.url?.startsWith("/api/ws")) return nextUpgrade(req, socket, head);
   const reject = (code: string) => {
     socket.write(`HTTP/1.1 ${code}\r\nConnection: close\r\n\r\n`);
     socket.destroy();

@@ -53,7 +53,7 @@ export const FIELD_HINTS = {
   targetScore: "Points needed to win the match. 0 = one round only.",
   turnSeconds: "Time per turn. When it runs out the game draws for you.",
   handSize: "Cards dealt to each player (usually 7).",
-  maxPlayers: "Seats at the table, 2 to 10.",
+  maxPlayers: "Seats at the table, up to 20. Big Wildcard tables get extra decks.",
   isPublic: "Show this table in Open tables. Otherwise join by code or link only.",
   botLevel: "Easy bots miss plays. Hard bots save wilds and hit whoever is about to win.",
 };

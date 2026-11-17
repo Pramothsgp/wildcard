@@ -1,17 +1,19 @@
 import { requireSession } from "@repo/auth/next";
-import Link from "next/link";
+import { GameNav } from "@/components/game-nav";
+import { GAMES } from "@/game/party-meta";
 import { leaderboard } from "@/game/store";
 import { auth } from "@/lib/auth";
+import { gameParam } from "@/lib/game-param";
 
 export const dynamic = "force-dynamic";
 
-export default async function LeaderboardPage() {
+export default async function LeaderboardPage({ params }: { params: Promise<{ game: string }> }) {
   const session = await requireSession(auth());
-  const rows = await leaderboard(100);
+  const kind = await gameParam(params);
+  const rows = await leaderboard(kind, 100);
   return (
     <main className="mx-auto max-w-3xl space-y-6 px-4 py-8 text-white">
-      <Link href="/" className="text-sm text-amber-300 hover:underline">← Lobby</Link>
-      <h1 className="text-3xl font-black">Leaderboard</h1>
+      <GameNav kind={kind} title={`${GAMES[kind].name} leaderboard`} />
       <div className="overflow-x-auto rounded-2xl border border-white/10">
         <table className="w-full text-sm">
           <thead className="bg-white/5 text-left text-white/60">
@@ -41,6 +43,7 @@ export default async function LeaderboardPage() {
           </tbody>
         </table>
       </div>
+      <p className="text-center text-xs text-white/40">{GAMES[kind].points}</p>
     </main>
   );
 }

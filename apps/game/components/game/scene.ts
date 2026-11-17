@@ -337,13 +337,13 @@ export class TableScene {
       s.label.visible = !(i === 0 && g) || (!!s.bubble?.isConnected);
       s.avatar.hidden = !p.avatar;
       if (p.avatar) s.avatar.src = avatarUrl(p.avatar);
-      const turn = g?.turn === p.id && g.phase === "playing";
+      const turn = g ? g.turn === p.id && g.phase === "playing" : !!view.party && view.party.turn === p.id;
       s.el.className = `seat-tag${turn ? " is-turn" : ""}${p.out ? " is-out" : ""}${!p.connected ? " is-away" : ""}`;
       s.info.innerHTML = "";
       const name = document.createElement("b");
       name.textContent = p.id === view.you ? "You" : p.name;
       const meta = document.createElement("span");
-      meta.textContent = g ? `${p.count} cards · ${p.score} pts${p.calledUno && p.count <= 1 ? " · WILDCARD!" : ""}${p.place ? ` · ${ordinal(p.place)}` : p.out ? " · out" : ""}${!p.connected ? " · away" : p.auto ? " · autopilot" : ""}` : p.bot ? "bot" : p.connected ? "ready" : "away";
+      meta.textContent = g ? `${p.count} cards · ${p.score} pts${p.calledUno && p.count <= 1 ? " · WILDCARD!" : ""}${p.place ? ` · ${ordinal(p.place)}` : p.out ? " · out" : ""}${!p.connected ? " · away" : p.auto ? " · autopilot" : ""}` : view.party ? `${p.score} pts${p.out ? " · out" : ""}${view.party.done.includes(p.id) ? " · voted" : ""}${!p.connected ? " · away" : ""}` : p.bot ? "bot" : p.connected ? "ready" : "away";
       s.info.append(name, meta);
     });
 
