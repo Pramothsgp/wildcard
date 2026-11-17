@@ -1,23 +1,43 @@
 "use client";
 // The scene behind the party games, in place of the 3D card table: each game has its own world.
 // Imposter is a neon interrogation room with sweeping spotlights; Night Village is a hillside
-// village whose sky turns from night to day with the phases. Players sit in a ring.
-import { ROLES } from "@/game/party-meta";
+// village whose sky turns from night to day. Players sit in a ring and can be tapped to vote or pick.
+import type { ReactNode } from "react";
 import type { RoomView } from "@/game/protocol";
 import { avatarUrl } from "./avatars";
 
 // Fixed star positions, so the sky doesn't reshuffle on every render.
 const STARS = Array.from({ length: 70 }, (_, i) => ({ x: (i * 37.7) % 100, y: (i * 19.3) % 55, s: 1 + (i % 3), d: (i % 7) * 0.6 }));
 
-export function PartyStage({ room }: { room: RoomView }) {
-  const p = room.party;
+export type Sky = "night" | "day" | "dawn";
+export type RingProps = {
+  /** Players that can be tapped right now. */
+  pickable?: Set<string>;
+  picked?: string | null;
+  onPick?: (id: string) => void;
+  /** Small label on a token, e.g. a vote count. */
+  badge?: (id: string) => ReactNode;
+  /** Lines under a token, e.g. that player's clues. */
+  notes?: (id: string) => string[];
+  /** Coloured ring: red for a known wolf or imposter, green for a winner. */
+  tone?: (id: string) => "bad" | "good" | null;
+  /** A short status under the name. */
+  status?: (id: string) => string | null;
+  /** Big words across the scene when the phase changes, e.g. "Night 2". */
+  banner?: string | null;
+};
+
+export function PartyStage({ room, sky = "night", tense = false, ring }: { room: RoomView; sky?: Sky; tense?: boolean; ring: RingProps }) {
   const kind = room.kind;
-  const phase = p?.phase ?? "lobby";
-  const night = kind === "village" && phase === "night";
   return (
-    <div className={`party-stage absolute inset-0 overflow-hidden ${kind === "imposter" ? "stage-imposter" : `stage-village ${night || phase === "lobby" ? "is-night" : phase === "day" ? "is-day" : "is-dawn"}`} ${phase === "vote" || phase === "guess" ? "is-tense" : ""}`}>
-      {kind === "imposter" ? <Interrogation /> : <Village night={night || phase === "lobby"} />}
-      <Ring room={room} />
+    <div className={`party-stage absolute inset-0 overflow-hidden ${kind === "imposter" ? "stage-imposter" : `stage-village is-${sky}`} ${tense ? "is-tense" : ""}`}>
+      {kind === "imposter" ? <Interrogation /> : <Village night={sky === "night"} />}
+      {ring.banner && (
+        <p key={ring.banner} aria-hidden className="stage-banner pointer-events-none absolute inset-x-0 top-[22%] text-center text-5xl font-black tracking-wide text-white sm:text-7xl">
+          {ring.banner}
+        </p>
+      )}
+      <Ring room={room} {...ring} />
     </div>
   );
 }
@@ -28,7 +48,6 @@ function Interrogation() {
       <div className="spot spot-a" />
       <div className="spot spot-b" />
       <div className="absolute left-1/2 top-[34%] -translate-x-1/2 -translate-y-1/2 select-none text-[28vmin] font-black leading-none text-fuchsia-300/[0.06]">?</div>
-      {/* The table under the lamp. */}
       <div className="absolute left-1/2 top-[38%] h-[30vmin] w-[62vmin] -translate-x-1/2 -translate-y-1/2 rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(240,171,252,0.16),rgba(20,8,30,0.6)_60%,transparent_72%)]" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_40%,rgba(0,0,0,0.75)_100%)]" />
     </div>
@@ -56,51 +75,67 @@ function Village({ night }: { night: boolean }) {
           </g>
         ))}
       </svg>
-      {/* Campfire in the village square, where everyone gathers. */}
+      {/* Campfire in the village square. */}
       <div className="fire absolute left-1/2 top-[66%] size-[18vmin] rounded-full" />
       <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_50%,rgba(0,0,0,0.55)_100%)]" />
     </div>
   );
 }
 
-/** Players around the middle of the scene, above the panel at the bottom. */
-function Ring({ room }: { room: RoomView }) {
-  const p = room.party;
+/** Players around the middle of the scene, above the panel at the bottom. You sit at the bottom. */
+function Ring({ room, pickable, picked, onPick, badge, notes, tone, status }: { room: RoomView } & RingProps) {
   const players = room.players;
   const meIdx = Math.max(0, players.findIndex((x) => x.id === room.you));
   const n = players.length;
   const big = n > 10;
+  const turn = room.party?.turn;
   return (
     <ul className="absolute inset-0" aria-label="Players">
       {players.map((pl, i) => {
-        // You sit at the bottom of the ring; everyone else goes round from there.
         const a = Math.PI / 2 + ((i - meIdx + n) % n) * ((2 * Math.PI) / Math.max(1, n));
-        const x = 50 + Math.cos(a) * 36;
-        const y = 36 + Math.sin(a) * 22;
-        const role = p?.kind === "village" ? p.known[pl.id] : undefined;
-        const imposter = p?.kind === "imposter" && p.imposters?.includes(pl.id);
-        const turn = p?.turn === pl.id;
-        const won = p?.winners.includes(pl.id);
+        // A flat ring in the upper part of the scene, so the panel at the bottom never hides anyone.
+        const x = 50 + Math.cos(a) * 40;
+        const y = 27 + Math.sin(a) * 17;
+        const can = pickable?.has(pl.id) ?? false;
+        const t = tone?.(pl.id);
+        const lines = notes?.(pl.id) ?? [];
+        const mark = badge?.(pl.id);
         const react = room.reactions.findLast((r) => r.id === pl.id);
+        const label = pl.id === room.you ? "You" : pl.name;
+        const ring = picked === pl.id ? "ring-4 ring-amber-300" : t === "bad" ? "ring-2 ring-red-400" : t === "good" ? "ring-2 ring-emerald-300" : turn === pl.id ? "ring-2 ring-amber-300" : "ring-2 ring-white/25";
+        const face = (
+          <>
+            {react && <span key={react.at} className="token-bubble">{react.text}</span>}
+            <span className={`relative grid ${big ? "size-10" : "size-14"} place-items-center rounded-full bg-white/10 text-xl font-black ${ring} ${can ? "token-pickable" : ""}`}>
+              <span className="grid size-full place-items-center overflow-hidden rounded-full">
+                {pl.avatar ? <img src={avatarUrl(pl.avatar)} alt="" className="size-full" /> : pl.name.slice(0, 1)}
+              </span>
+              {pl.out && <span className="absolute inset-0 grid place-items-center rounded-full bg-black/60 text-2xl text-red-300">✕</span>}
+              {mark ? <span className="absolute -right-2 -top-2 grid min-w-6 place-items-center rounded-full bg-amber-300 px-1.5 py-0.5 text-[11px] font-black text-black shadow">{mark}</span> : null}
+            </span>
+            <span className="max-w-full truncate rounded-full bg-black/60 px-2 py-0.5 text-xs font-bold text-white">{label}</span>
+            <span className="text-[11px] text-white/80 [text-shadow:0_1px_2px_black]">{status?.(pl.id) ?? `${pl.score} pts`}{!pl.connected ? " · away" : ""}</span>
+            {lines.length > 0 && (
+              <span className="flex max-w-36 flex-wrap justify-center gap-1">
+                {lines.map((l, k) => <span key={k} className="rounded-md bg-sky-400/25 px-1.5 py-0.5 text-[11px] font-semibold text-sky-50 ring-1 ring-sky-300/40">{l}</span>)}
+              </span>
+            )}
+          </>
+        );
+        const box = `flex ${big ? "w-24" : "w-32"} flex-col items-center gap-1 rounded-2xl p-1 text-center`;
         return (
           <li
             key={pl.id}
-            className={`token absolute flex ${big ? "w-20" : "w-28"} -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 text-center ${turn ? "is-turn" : ""} ${pl.out ? "is-out" : ""} ${!pl.connected ? "opacity-60" : ""}`}
+            className={`token absolute -translate-x-1/2 -translate-y-1/2 ${turn === pl.id ? "is-turn" : ""} ${pl.out ? "is-out" : ""} ${!pl.connected ? "opacity-60" : ""}`}
             style={{ left: `${x}%`, top: `${y}%` }}
           >
-            {react && <span key={react.at} className="token-bubble">{react.text}</span>}
-            <span className={`relative grid ${big ? "size-10" : "size-14"} place-items-center overflow-hidden rounded-full bg-white/10 text-xl font-black ring-2 ${won ? "ring-emerald-300" : imposter || role === "wolf" ? "ring-red-400" : turn ? "ring-amber-300" : "ring-white/25"}`}>
-              {pl.avatar ? <img src={avatarUrl(pl.avatar)} alt="" className="size-full" /> : pl.name.slice(0, 1)}
-              {pl.out && <span className="absolute inset-0 grid place-items-center bg-black/60 text-2xl text-red-300">✕</span>}
-            </span>
-            <span className="max-w-full truncate rounded-full bg-black/55 px-2 py-0.5 text-xs font-bold text-white">{pl.id === room.you ? "You" : pl.name}</span>
-            <span className="text-[11px] text-white/70">
-              {pl.score} pts
-              {p?.done.includes(pl.id) ? " · voted" : ""}
-              {imposter ? " · imposter" : ""}
-              {role && pl.id !== room.you ? ` · ${ROLES[role].name}` : ""}
-              {!pl.connected ? " · away" : ""}
-            </span>
+            {can ? (
+              <button type="button" aria-pressed={picked === pl.id} aria-label={`Pick ${label}`} onClick={() => onPick?.(pl.id)} className={`${box} transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-amber-300`}>
+                {face}
+              </button>
+            ) : (
+              <div className={box}>{face}</div>
+            )}
           </li>
         );
       })}

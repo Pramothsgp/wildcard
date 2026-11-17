@@ -10,6 +10,9 @@ Branch: `party-games` (from `main`). Not committed or pushed yet.
 - Up to 20 players in every game. Wildcard adds decks as needed; wolves and imposters scale with the table.
 - WebSocket moved from `/ws` to `/api/ws` (see LESSONS.md).
 - `rooms.ts` split: input cleaning in `clean.ts`, per-player view in `view.ts`.
+- Each game has its own wording (`game/copy.ts`): button labels, lobby text, empty states, leaderboard titles. Game pages open with a hero and "how it plays" steps.
+- Party UI: `imposter-game.tsx` and `village-game.tsx`. You vote or pick by tapping players on the stage; Imposter clues sit under each player; Night Village shows a role card each round. Round results have a personal headline and the points each player earned.
+- Dev note: on a cold dev server the browser test tool can trigger a reload loop (it injects an inline style, Next logs the hydration warning into `.next`, which rebuilds). It stops once routes are compiled; real browsers aren't affected.
 
 ## Open
 - An away player's clue turn in Imposter is skipped after 3s; away voters still hold the vote until its clock runs out.

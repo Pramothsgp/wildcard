@@ -185,6 +185,7 @@ export function view(s: VillageState, uid: string): VillageView {
     // Who has acted at night would give the roles away.
     done: s.phase === "day" ? Object.keys(s.votes).map((k) => id(Number(k))) : [],
     winners: s.winners.map(id), outcome: s.outcome, day: s.day, yourRole: role,
+    gained: Object.fromEntries(s.gained.map((g, i) => [id(i), g])),
     alive: living(s).map(id), known,
     votes: Object.fromEntries(Object.entries(votes).map(([k, t]) => [id(Number(k)), t === null ? null : id(t)])),
     seen: role === "seer" || over ? s.seen.map((i) => ({ id: id(i), wolf: s.roles[i] === "wolf" })) : [],

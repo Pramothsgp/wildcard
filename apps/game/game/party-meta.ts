@@ -95,6 +95,8 @@ type Common = {
   done: string[];
   /** Winners of the round that just ended. */
   winners: string[];
+  /** Points each player got in the round that just ended. */
+  gained: Record<string, number>;
   outcome: string | null;
 };
 
