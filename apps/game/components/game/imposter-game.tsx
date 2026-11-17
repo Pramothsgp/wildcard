@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import type { ImposterView } from "@/game/party-meta";
 import type { RoomView } from "@/game/protocol";
 import { Btn } from "./hud";
+import { Hotkey } from "./keys";
 import { Panel, RoundEnd, TextMove, act, nameOf } from "./party";
 import { PartyStage } from "./party-stage";
 
@@ -57,11 +58,12 @@ export function ImposterGame({ room }: { room: RoomView }) {
         {p.phase === "clues" && <Clues room={room} p={p} />}
         {p.phase === "vote" && (
           <>
-            <p className="text-sm text-white/70">{p.youAreImposter ? "Vote too, or you'll stand out. " : ""}Tap a suspect on the table, or here. Compare their clues.</p>
+            <p className="text-sm text-white/70">{p.youAreImposter ? "Vote too, or you'll stand out. " : ""}Tap a suspect on the table, or here (or press their number). Compare their clues.</p>
             <div className="grid gap-2 sm:grid-cols-2">
-              {others.map((id) => (
-                <button key={id} type="button" aria-pressed={vote === id} onClick={() => doVote(id)}
+              {others.map((id, i) => (
+                <button key={id} type="button" aria-pressed={vote === id} aria-keyshortcuts={i < 9 ? String(i + 1) : undefined} onClick={() => doVote(id)}
                   className={`rounded-xl p-2 text-left text-sm transition ${vote === id ? "bg-gradient-to-b from-[#f3d27a] to-[#c9973a] text-black" : "bg-white/5 hover:bg-white/10"}`}>
+                  {i < 9 && <><Hotkey k={String(i + 1)} fn={() => doVote(id)} /><kbd className="mr-1.5 font-mono text-xs opacity-60 pointer-coarse:hidden">{i + 1}</kbd></>}
                   <b>{nameOf(room, id)}</b>{p.done.includes(id) && <span className="ml-1 text-xs opacity-60">· voted</span>}
                   <span className="block text-xs opacity-80">{cluesOf(id).join(" · ") || "no clues"}</span>
                 </button>
@@ -97,7 +99,7 @@ function Secret({ p, hidden, onToggle }: { p: ImposterView; hidden: boolean; onT
         </p>
         {!hidden && p.youAreImposter && <p className="text-xs text-red-100/80">You don't know the word. Listen to the clues and bluff.</p>}
       </div>
-      <Btn variant="ghost" className="shrink-0 px-3 text-xs" onClick={onToggle}>{hidden ? "Show" : "Hide"}</Btn>
+      <Btn variant="ghost" kbd="h" className="shrink-0 px-3 text-xs" onClick={onToggle}>{hidden ? "Show" : "Hide"}</Btn>
     </div>
   );
 }

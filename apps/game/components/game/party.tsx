@@ -137,12 +137,12 @@ export function RoundEnd({ room, headline, children }: { room: RoomView; headlin
         {over ? (
           <>
             <Link href={`/${room.kind}/history/${room.code}`} className="rounded-xl bg-white/10 px-4 py-2 text-sm font-bold hover:bg-white/20">Game log</Link>
-            {host ? <Btn onClick={() => send({ t: "next" })}>Play again</Btn> : <Btn variant="ghost" onClick={() => send({ t: "leave" })}>Back to the lobby</Btn>}
+            {host ? <Btn kbd="Enter" onClick={() => send({ t: "next" })}>Play again</Btn> : <Btn variant="ghost" onClick={() => send({ t: "leave" })}>Back to the lobby</Btn>}
           </>
         ) : (
           <>
             <span className="text-xs text-white/55">Next round starts in a few seconds</span>
-            {host && <Btn onClick={() => send({ t: "next" })}>Start it now</Btn>}
+            {host && <Btn kbd="Enter" onClick={() => send({ t: "next" })}>Start it now</Btn>}
           </>
         )}
       </div>

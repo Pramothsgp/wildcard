@@ -12,6 +12,7 @@ import { ImposterGame } from "./imposter-game";
 import { VillageGame } from "./village-game";
 import { RulesPanel } from "./rules";
 import { HEX } from "./card-art";
+import { useHotkey } from "./keys";
 import { TableScene } from "./scene";
 import { ReactionBar } from "./social";
 import { sound } from "./sound";
@@ -129,12 +130,13 @@ export function GameClient({ code, kind }: { code: string; kind: GameKind }) {
         <Modal title={pick.needColor && !pick.color ? "Pick a colour" : "Swap hands with"} onClose={() => setPick(null)}>
           {pick.needColor && !pick.color ? (
             <div className="grid grid-cols-2 gap-3">
-              {palette.map((c) => (
-                <button
+              {palette.map((c, i) => (
+                <Btn
                   key={c}
-                  type="button"
+                  variant="ghost"
+                  kbd={String(i + 1)}
                   aria-label={c}
-                  className="h-20 rounded-xl capitalize font-bold shadow-lg ring-2 ring-white/10 transition hover:scale-105 hover:ring-white"
+                  className="h-20 capitalize text-base text-white shadow-lg ring-2 ring-white/10 hover:scale-105 hover:ring-white"
                   style={{ background: HEX[c] }}
                   onClick={() => {
                     if (pick.needTarget) setPick({ ...pick, color: c });
@@ -142,13 +144,13 @@ export function GameClient({ code, kind }: { code: string; kind: GameKind }) {
                   }}
                 >
                   {c}
-                </button>
+                </Btn>
               ))}
             </div>
           ) : (
             <div className="grid gap-2">
-              {room.players.filter((p) => p.id !== room.you && !p.out).map((p) => (
-                <Btn key={p.id} variant="ghost" onClick={() => { act({ type: "play", cardId: pick.cardId, color: pick.color, target: p.id }); setPick(null); }}>
+              {room.players.filter((p) => p.id !== room.you && !p.out).map((p, i) => (
+                <Btn key={p.id} variant="ghost" kbd={i < 9 ? String(i + 1) : undefined} onClick={() => { act({ type: "play", cardId: pick.cardId, color: pick.color, target: p.id }); setPick(null); }}>
                   {p.name} · {p.count} cards
                 </Btn>
               ))}
@@ -182,6 +184,14 @@ function Table({ room, onPlay, onDraw }: { room: RoomView; onPlay: (id: number) 
   useEffect(() => {
     scene.current?.update(room);
   }, [room]);
+  useHotkey("ArrowLeft", () => scene.current?.step(-1));
+  useHotkey("ArrowRight", () => scene.current?.step(1));
+  // Enter throws the raised card; with none raised it raises the first one.
+  useHotkey("Enter", () => {
+    const id = scene.current?.selected;
+    if (id != null) cbs.current.onPlay(id);
+    else scene.current?.step(1);
+  });
 
   return (
     <>

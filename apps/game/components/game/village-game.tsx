@@ -64,19 +64,29 @@ export function VillageGame({ room }: { room: RoomView }) {
             <span className={`flex items-center gap-2 rounded-full px-3 py-1 text-sm font-bold ${me === "wolf" ? "bg-red-500/25 text-red-100" : "bg-sky-400/15 text-sky-100"}`}>
               <RoleIcon role={me} className="size-5" /> You are the {ROLES[me].name}{alive ? "" : " (out)"}
             </span>
-            <Btn variant="ghost" className="px-3 text-xs" onClick={() => setShowRole(true)}>My role</Btn>
+            <Btn variant="ghost" kbd="r" className="px-3 text-xs" onClick={() => setShowRole(true)}>My role</Btn>
           </div>
         )}
         {p.news.length > 0 && !over && (
           <p className={`rounded-xl px-3 py-2 text-sm font-semibold ${/taken|voted out/.test(p.news.at(-1)!) ? "bg-red-500/15 ring-1 ring-red-400/30" : "bg-emerald-500/15 ring-1 ring-emerald-300/30"}`}>{p.news.at(-1)}</p>
         )}
         {p.phase === "night" && <p className="text-sm text-white/75">{nightText(room, p, power)}</p>}
+        {targets.size > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {[...targets].map((id, i) => (
+              <Btn key={id} variant={(p.phase === "night" ? p.yourPick : myVote) === id ? "primary" : "ghost"} kbd={i < 9 ? String(i + 1) : undefined} className="px-3 text-xs"
+                onClick={() => act(p.phase === "night" ? { type: "pick", target: id } : { type: "vote", target: id })}>
+                {nameOf(room, id)}
+              </Btn>
+            ))}
+          </div>
+        )}
         {p.phase === "day" && (
           <>
             <p className="text-sm text-white/75">{alive ? "Talk it over in chat, then tap a suspect to vote. Votes show live on the table." : "You're a ghost now. Watch quietly: no hints in chat, please."}</p>
             {alive && (
               <div className="flex flex-wrap items-center gap-2">
-                <Btn variant={myVote === null ? "primary" : "ghost"} aria-pressed={myVote === null} onClick={() => act({ type: "vote", target: null })}>Skip the vote</Btn>
+                <Btn variant={myVote === null ? "primary" : "ghost"} kbd="0" aria-pressed={myVote === null} onClick={() => act({ type: "vote", target: null })}>Skip the vote</Btn>
                 <span className="text-xs text-white/60">{myVote ? `You voted for ${nameOf(room, myVote)}. Tap someone else to change.` : myVote === null ? "You chose to skip." : ""}</span>
               </div>
             )}
@@ -152,7 +162,7 @@ function RoleCard({ room, p, role, onClose }: { room: RoomView; p: VillageView; 
         <p className="text-sm leading-relaxed text-white/80">{MISSION[role]}</p>
         {wolf && pack.length > 0 && <p className="rounded-lg bg-red-500/15 p-2 text-sm">Your pack: <b>{pack.map((id) => nameOf(room, id)).join(", ")}</b></p>}
         <p className="text-xs text-white/50">Keep it secret. Don't let anyone see your screen.</p>
-        <Btn className="w-full py-3 text-base" onClick={onClose} data-autofocus>I&apos;m ready</Btn>
+        <Btn className="w-full py-3 text-base" kbd="Enter" onClick={onClose} data-autofocus>I&apos;m ready</Btn>
       </div>
     </div>
   );

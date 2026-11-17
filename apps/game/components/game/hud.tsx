@@ -15,13 +15,17 @@ import { PartyOptions } from "./party";
 import { FieldOption, RuleOption } from "./rules";
 import { AvatarPicker } from "./social";
 
+import { keyLabel, useHotkey } from "./keys";
 import { isMuted, setMuted } from "./sound";
 
 // Dark lacquer panels with a gold hairline, to match the table.
 const glass = "rounded-2xl border border-amber-300/25 bg-gradient-to-b from-[#1d150e]/90 to-[#0b0806]/90 shadow-[0_10px_40px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,220,160,0.10)] backdrop-blur-md";
 const chip = "rounded border border-amber-300/30 bg-amber-300/10 px-2 py-0.5 text-xs text-amber-100";
 
-export function Btn({ variant = "primary", className = "", ...p }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "danger" | "hot" }) {
+/** `kbd` binds a key that presses this button, and shows it on the button. */
+export function Btn({ variant = "primary", className = "", kbd, children, ...p }: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "ghost" | "danger" | "hot"; kbd?: string }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  useHotkey(kbd, () => ref.current?.click(), ref);
   const v = {
     primary: "bg-gradient-to-b from-[#f3d27a] to-[#c9973a] text-[#1a1208] shadow-[0_2px_12px_rgba(212,175,96,0.35)] hover:brightness-110",
     ghost: "border border-amber-300/25 bg-black/40 text-amber-50 hover:border-amber-300/60 hover:bg-amber-300/10",
@@ -30,10 +34,15 @@ export function Btn({ variant = "primary", className = "", ...p }: React.ButtonH
   }[variant];
   return (
     <button
+      ref={ref}
       type="button"
+      aria-keyshortcuts={kbd}
       className={`rounded-xl px-4 py-2 text-sm font-bold transition active:scale-95 disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${v} ${className}`}
       {...p}
-    />
+    >
+      {children}
+      {kbd && <kbd className="ml-2 rounded border border-current/30 px-1 font-mono text-[10px] opacity-70 pointer-coarse:hidden">{keyLabel(kbd)}</kbd>}
+    </button>
   );
 }
 
@@ -117,7 +126,7 @@ export function TopBar({ room, status, onRules }: { room: RoomView; status: stri
         {status !== "open" && <span className="animate-pulse text-xs text-red-300">Reconnecting...</span>}
       </div>
       <div className="flex gap-2">
-        <Btn variant="ghost" onClick={onRules}>Rules</Btn>
+        <Btn variant="ghost" kbd="?" onClick={onRules}>Rules</Btn>
         <Btn variant="ghost" aria-label={muted ? "Unmute" : "Mute"} onClick={() => { setMuted(!muted); setM(!muted); }}>
           {muted ? "Sound off" : "Sound on"}
         </Btn>
@@ -187,15 +196,16 @@ export function ActionBar({ room, act }: { room: RoomView; act: (a: Action) => v
           </div>
         )}
       </div>
+      {mine && g.playable.length > 0 && <p className="text-[11px] text-amber-100/50 pointer-coarse:hidden">← → pick a card · ↵ play it</p>}
       <div className="pointer-events-auto flex flex-wrap justify-center gap-2">
-        {mine && g.pendingDraw > 0 && <Btn variant="danger" onClick={() => act({ type: "draw" })}>Take {g.pendingDraw}</Btn>}
-        {g.canChallenge && <Btn variant="ghost" onClick={() => act({ type: "challenge" })}>Challenge the +4</Btn>}
-        {mine && !g.pendingDraw && g.drawn === null && <Btn variant="ghost" onClick={() => act({ type: "draw" })}>Draw</Btn>}
-        {mine && g.drawn !== null && <Btn variant="ghost" onClick={() => act({ type: "pass" })}>Pass</Btn>}
+        {mine && g.pendingDraw > 0 && <Btn variant="danger" kbd="d" onClick={() => act({ type: "draw" })}>Take {g.pendingDraw}</Btn>}
+        {g.canChallenge && <Btn variant="ghost" kbd="c" onClick={() => act({ type: "challenge" })}>Challenge the +4</Btn>}
+        {mine && !g.pendingDraw && g.drawn === null && <Btn variant="ghost" kbd="d" onClick={() => act({ type: "draw" })}>Draw</Btn>}
+        {mine && g.drawn !== null && <Btn variant="ghost" kbd="p" onClick={() => act({ type: "pass" })}>Pass</Btn>}
         {me && !me.out && g.hand.length <= 2 && !me.calledUno && (
-          <Btn variant="hot" onClick={() => act({ type: "uno" })}>WILDCARD!</Btn>
+          <Btn variant="hot" kbd="w" onClick={() => act({ type: "uno" })}>WILDCARD!</Btn>
         )}
-        {target && <Btn variant="danger" onClick={() => act({ type: "catch", target: target.id })}>Catch {target.name}!</Btn>}
+        {target && <Btn variant="danger" kbd="x" onClick={() => act({ type: "catch", target: target.id })}>Catch {target.name}!</Btn>}
       </div>
     </div>
   );
@@ -387,7 +397,7 @@ export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => v
           {host ? (
             <>
               <Btn variant="ghost" disabled={room.players.length >= room.maxPlayers} onClick={() => send({ t: "addBot" })}>{c.addBot}</Btn>
-              <Btn disabled={short > 0} onClick={() => send({ t: "start" })}>{c.start}</Btn>
+              <Btn disabled={short > 0} kbd="Enter" onClick={() => send({ t: "start" })}>{c.start}</Btn>
             </>
           ) : (
             <p className="text-sm text-white/60">{c.waiting}</p>
@@ -474,12 +484,12 @@ export function RoundModal({ room }: { room: RoomView }) {
         {match ? (
           <>
             <Link href={`/${room.kind}/history/${room.code}`} className="rounded-xl bg-white/10 px-4 py-2 text-sm font-bold hover:bg-white/20">Game log</Link>
-            {host ? <Btn onClick={() => send({ t: "next" })}>Rematch</Btn> : <Btn variant="ghost" onClick={() => send({ t: "leave" })}>Back to lobby</Btn>}
+            {host ? <Btn kbd="Enter" onClick={() => send({ t: "next" })}>Rematch</Btn> : <Btn variant="ghost" onClick={() => send({ t: "leave" })}>Back to lobby</Btn>}
           </>
         ) : (
           <>
             {g.deadline && <span className="self-center text-sm text-white/60">Next round in {Math.max(0, Math.ceil((g.deadline - now) / 1000))}s</span>}
-            {host && <Btn onClick={() => send({ t: "next" })}>Deal now</Btn>}
+            {host && <Btn kbd="Enter" onClick={() => send({ t: "next" })}>Deal now</Btn>}
           </>
         )}
       </div>

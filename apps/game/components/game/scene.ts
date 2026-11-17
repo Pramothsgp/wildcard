@@ -89,6 +89,7 @@ export class TableScene {
   private raycaster = new THREE.Raycaster();
   private pointer = new THREE.Vector2(9, 9);
   private hovered: string | null = null;
+  private chosen: number | null = null; // card raised with the arrow keys
   private playable = new Set<number>();
   private view: RoomView | null = null;
   private clock = new THREE.Clock();
@@ -206,6 +207,20 @@ export class TableScene {
   }
 
   /** Step the camera toward (factor < 1) or away from (factor > 1) what it looks at. */
+  /** Arrow keys: raise the next playable card left or right. */
+  step(dir: 1 | -1) {
+    const ids = this.view?.game?.hand.map((c) => c.id).filter((id) => this.playable.has(id)) ?? [];
+    if (!ids.length) return;
+    const at = ids.indexOf(this.chosen ?? -1);
+    this.chosen = ids[at < 0 ? (dir > 0 ? 0 : ids.length - 1) : (at + dir + ids.length) % ids.length];
+    this.update(this.view!);
+  }
+
+  /** The raised card, if it can still be played. */
+  get selected() {
+    return this.chosen !== null && this.playable.has(this.chosen) ? this.chosen : null;
+  }
+
   zoom(factor: number) {
     const offset = this.camera.position.clone().sub(this.controls.target);
     offset.setLength(THREE.MathUtils.clamp(offset.length() * factor, MIN_DIST, MAX_DIST));
@@ -381,7 +396,7 @@ export class TableScene {
         const x = (i - (n - 1) / 2) * spread;
         // Playable cards glow, stand a little proud and stay bright; the rest go dark on your turn.
         const ok = this.playable.has(c.id);
-        const hover = this.hovered === key;
+        const hover = this.hovered === key || (this.chosen === c.id && ok);
         const myTurn = g.turn === view.you && g.phase === "playing";
         const lift = ok ? (hover ? 0.6 : 0.3) : hover ? 0.1 : myTurn ? -0.12 : 0;
         if (!obj.shade) {
