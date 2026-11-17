@@ -188,6 +188,7 @@ export function view(s: ImposterState, uid: string): ImposterView {
     turn: s.phase === "clues" ? id(s.turn) : s.phase === "guess" ? id(s.accused) : null,
     done: s.phase === "vote" ? Object.keys(s.votes).map((k) => s.players[Number(k)].id) : [],
     winners: s.winners.map((i) => s.players[i].id), outcome: s.outcome,
+    gained: Object.fromEntries(s.gained.map((g, i) => [s.players[i].id, g])),
     category: PACKS[s.pack], word: imp && !shown ? null : entryOf(s).word, youAreImposter: imp,
     lap: Math.min(s.lap, s.opts.laps), laps: s.opts.laps,
     clues: s.clues.map((c) => ({ id: s.players[c.seat].id, text: c.text })),

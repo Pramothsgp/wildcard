@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import { MODES, type ModeId } from "@/game/modes";
-import { GAMES, type GameKind, roomPath } from "@/game/party-meta";
+import { COPY } from "@/game/copy";
+import { type GameKind, roomPath } from "@/game/party-meta";
 import type { RoomSummary, ServerMsg } from "@/game/protocol";
 import { send, useSocket, useSocketStatus } from "@/lib/socket";
 import { Btn } from "./game/hud";
@@ -22,6 +23,7 @@ export function Lobby({ kind, userName }: { kind: GameKind; userName: string }) 
   const bots = useRef(0);
   // Night Village plays best with a healer, who joins from 5 players.
   const practiceBots = kind === "village" ? 4 : 3;
+  const c = COPY[kind];
 
   const onMessage = useCallback((m: ServerMsg) => {
     if (m.t === "welcome") send({ t: "lobby" });
@@ -37,13 +39,16 @@ export function Lobby({ kind, userName }: { kind: GameKind; userName: string }) 
   const create = (practice: boolean) => {
     setError(null);
     bots.current = practice ? practiceBots : 0;
-    send({ t: "create", settings: { kind, mode, isPublic: practice ? false : isPublic, name: practice ? `${userName} vs bots` : undefined } });
+    send({ t: "create", settings: { kind, mode, isPublic: practice ? false : isPublic, name: practice ? `${userName} vs bots` : c.defaultName(userName) } });
   };
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1.4fr_1fr]">
       <section className={`${panel} space-y-4`}>
-        <h2 className="text-lg font-black">Start a {GAMES[kind].name} table</h2>
+        <div>
+          <h2 className="text-lg font-black">{c.startTitle}</h2>
+          <p className="text-sm text-white/55">{c.startHint}</p>
+        </div>
         {kind === "wildcard" && <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           {(Object.keys(MODES) as ModeId[]).map((id) => (
             <button
@@ -60,57 +65,57 @@ export function Lobby({ kind, userName }: { kind: GameKind; userName: string }) 
         </div>}
         <label className="flex items-center gap-2 text-sm text-white/80">
           <input type="checkbox" checked={isPublic} onChange={(e) => setIsPublic(e.target.checked)} className="accent-amber-400" />
-          List it publicly (otherwise invite by code)
+          {c.publicLabel}
         </label>
         <div className="flex flex-wrap gap-2">
-          <Btn onClick={() => create(false)} disabled={status !== "open"}>Create table</Btn>
-          <Btn variant="ghost" onClick={() => create(true)} disabled={status !== "open"}>Practice vs {practiceBots} bots</Btn>
+          <Btn onClick={() => create(false)} disabled={status !== "open"}>{c.create}</Btn>
+          <Btn variant="ghost" onClick={() => create(true)} disabled={status !== "open"}>{c.practice(practiceBots)}</Btn>
         </div>
         {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
       </section>
 
       <section className={`${panel} space-y-4`}>
-        <h2 className="text-lg font-black">Join with a code</h2>
+        <h2 className="text-lg font-black">{c.joinTitle}</h2>
         <form
           className="flex gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            const c = code.trim().toUpperCase();
-            if (/^[A-Z0-9]{5}$/.test(c)) router.push(roomPath(kind, c));
+            const typed = code.trim().toUpperCase();
+            if (/^[A-Z0-9]{5}$/.test(typed)) router.push(roomPath(kind, typed));
             else setError("Codes are 5 letters or numbers");
           }}
         >
           <input
-            aria-label="Table code"
+            aria-label="Code"
             value={code}
             onChange={(e) => setCode(e.target.value)}
             maxLength={5}
             placeholder="ABCDE"
             className="w-36 rounded-xl bg-white/10 px-3 py-2 font-mono uppercase tracking-widest text-white outline-none focus:ring-2 focus:ring-amber-300"
           />
-          <Btn type="submit">Join</Btn>
+          <Btn type="submit">{c.join}</Btn>
         </form>
 
         <div>
-          <h3 className="mb-2 text-sm font-bold text-white/70">Open tables</h3>
+          <h3 className="mb-2 text-sm font-bold text-white/70">{c.openTitle}</h3>
           {rooms === null ? (
             <p className="text-sm text-white/40">Loading...</p>
           ) : rooms.length === 0 ? (
-            <p className="text-sm text-white/40">No public {GAMES[kind].name} tables right now. Start one.</p>
+            <p className="text-sm text-white/50">{c.openEmpty}</p>
           ) : (
             <ul className="max-h-72 space-y-2 overflow-y-auto pr-1">
               {rooms.map((r) => (
                 <li key={r.code} className="flex items-center justify-between gap-2 rounded-xl bg-white/5 px-3 py-2 text-sm">
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-white">{r.name}</p>
-                    <p className="text-xs text-white/50">{kind === "wildcard" ? `${MODES[r.mode].name} · ` : ""}{r.players}/{r.maxPlayers} · {r.status === "playing" ? "in progress" : `host ${r.host}`}</p>
+                    <p className="text-xs text-white/50">{kind === "wildcard" ? `${MODES[r.mode].name} · ` : ""}{r.players}/{r.maxPlayers} {c.players.toLowerCase()} · {r.status === "playing" ? "in progress" : `host ${r.host}`}</p>
                   </div>
                   <Btn
                     variant="ghost"
                     disabled={r.status === "playing" || r.players >= r.maxPlayers}
                     onClick={() => router.push(roomPath(kind, r.code))}
                   >
-                    {r.status === "playing" ? "Playing" : "Join"}
+                    {r.status === "playing" ? "In progress" : c.openJoin}
                   </Btn>
                 </li>
               ))}

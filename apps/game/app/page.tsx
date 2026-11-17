@@ -1,6 +1,7 @@
 import { SignOutButton } from "@repo/auth/components";
 import { getSession } from "@repo/auth/next";
 import Link from "next/link";
+import { COPY } from "@/game/copy";
 import { GAMES, type GameKind, kindOf, roomPath } from "@/game/party-meta";
 import { liveRoomFor } from "@/game/store";
 import { auth } from "@/lib/auth";
@@ -8,13 +9,6 @@ import { auth } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 const link = "rounded-xl px-4 py-2 text-sm font-bold transition";
-/** Each game's colours on its card. */
-const LOOK: Record<GameKind, string> = {
-  wildcard: "from-emerald-700/60 via-emerald-900/40 to-amber-700/30 ring-amber-300/40",
-  imposter: "from-fuchsia-700/50 via-violet-950/60 to-black ring-fuchsia-400/40",
-  village: "from-indigo-800/60 via-slate-950/70 to-orange-800/30 ring-indigo-300/40",
-};
-
 export default async function Home() {
   const session = await getSession(auth());
   const live = session ? await liveRoomFor(session.user.id) : null;
@@ -46,11 +40,12 @@ export default async function Home() {
           <li key={kind}>
             <Link
               href={session ? `/${kind}` : "/signin"}
-              className={`flex h-full flex-col justify-between gap-6 rounded-3xl bg-gradient-to-br p-6 ring-1 transition hover:-translate-y-1 hover:brightness-110 ${LOOK[kind]}`}
+              className={`flex h-full flex-col justify-between gap-6 rounded-3xl bg-gradient-to-br p-6 ring-1 transition hover:-translate-y-1 hover:brightness-110 ${COPY[kind].look}`}
             >
               <div className="space-y-2">
                 <h2 className="text-2xl font-black">{GAMES[kind].name}</h2>
-                <p className="text-sm text-white/75">{GAMES[kind].blurb}</p>
+                <p className="text-sm font-semibold text-white/90">{COPY[kind].tagline}</p>
+                <p className="text-sm text-white/65">{GAMES[kind].blurb}</p>
               </div>
               <span className="flex items-center justify-between text-sm font-bold">
                 <span className="text-white/60">{GAMES[kind].min} to {GAMES[kind].max} players</span>

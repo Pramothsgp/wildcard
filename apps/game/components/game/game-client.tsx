@@ -8,8 +8,8 @@ import type { Action, RoomView, ServerMsg } from "@/game/protocol";
 import { themeOf } from "@/game/themes";
 import { send, useSocket, useSocketStatus } from "@/lib/socket";
 import { ActionBar, Btn, LobbyPanel, Modal, RoundModal, SidePanel, TopBar } from "./hud";
-import { PartyPanel } from "./party";
-import { PartyStage } from "./party-stage";
+import { ImposterGame } from "./imposter-game";
+import { VillageGame } from "./village-game";
 import { RulesPanel } from "./rules";
 import { HEX } from "./card-art";
 import { TableScene } from "./scene";
@@ -111,7 +111,7 @@ export function GameClient({ code, kind }: { code: string; kind: GameKind }) {
 
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-[#0a0705] text-white select-none">
-      {room.kind === "wildcard" ? <Table room={room} onPlay={onPlay} onDraw={onDraw} /> : <PartyStage room={room} />}
+      {room.kind === "wildcard" ? <Table room={room} onPlay={onPlay} onDraw={onDraw} /> : room.kind === "imposter" ? <ImposterGame room={room} /> : <VillageGame room={room} />}
       <TopBar room={room} status={status} onRules={() => setRules(true)} />
       <SidePanel room={room} />
       {room.status === "lobby" && <LobbyPanel room={room} onRules={() => setRules(true)} />}
@@ -119,7 +119,6 @@ export function GameClient({ code, kind }: { code: string; kind: GameKind }) {
       {g && g.phase === "playing" && room.status === "playing" && <ActionBar room={room} act={act} />}
       {room.status === "playing" && <ReactionBar pack={themeOf(room.theme).sound} />}
       {g && g.phase !== "playing" && <RoundModal room={room} />}
-      {room.party && room.status !== "abandoned" && <PartyPanel room={room} />}
       {room.status === "abandoned" && (
         <Modal title="Table closed">
           <p className="text-white/70">Everyone left, so this game ended. It is saved in your history.</p>
