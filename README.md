@@ -37,16 +37,23 @@ Push to `main`: CI lints, typechecks, tests, builds one image per service, pushe
 
 A service with special needs (e.g. a custom server) can add its own `apps/<name>/Dockerfile`; CI uses it instead of the root one.
 
-## Wildcard game (`apps/game`)
+## Game night (`apps/game`)
 
-A 3D multiplayer shedding card game: Three.js table, WebSocket play, Postgres for everything.
+Three multiplayer games, WebSocket play, Postgres for everything. The home page lists the games; each lives under its own path with its own lobby, stats, leaderboard and history:
 
-- `server.ts` runs Next.js and the `/ws` WebSocket on one port. Run with Node (it strips the types). The service has its own `Dockerfile` for this.
+- `/wildcard`: a 3D shedding card game on a Three.js table.
+- `/imposter`: everyone but the imposter knows the secret word. Clue laps, a vote, then the imposter's last guess (`game/imposter.ts`, words in `game/words.ts`).
+- `/village` (Night Village): hidden roles. Wolves, a seer and a healer act at night; everyone votes by day (`game/village.ts`).
+
+Each game has `/<game>/room/<code>`, `/<game>/leaderboard` and `/<game>/history`. Old `/room/<code>` links redirect to the right game. Every game seats up to 20; big Wildcard tables shuffle in extra decks.
+
+- `server.ts` runs Next.js and the `/api/ws` WebSocket on one port (under `/api` so no page route can match it). Run with Node (it strips the types). The service has its own `Dockerfile` for this.
 - `game/engine.ts` holds the rules as pure functions on plain JSON state; `game/engine.test.ts` covers them (`bun run test`).
+- `game/party.ts` is the one entry point for Imposter and Night Village; `game/party.test.ts` covers both. Secret moves (night picks, votes before they close) are never written to the event log, so the history page can't leak them mid-game.
 - `game/rooms.ts` keeps live rooms in memory and saves the full room snapshot plus new log events to Postgres after every action, before players see the change. On start it reloads every live room, so a crash or deploy resumes games where they were.
 - Closing the tab or losing connection keeps your seat. The turn clock plays for you if you're away on your turn (autopilot); open the site again and the lobby shows a "Rejoin" banner. If every human is offline the game pauses.
 - Modes: Classic, Stack Attack, Seven-O, Jump-In, House Party, Flipside (double-sided deck), Ruthless (168 cards, knock-out at 25), Speed. Each rule can be toggled in the room lobby.
-- Points: winning a round scores the cards left in other hands; winning a match adds 100. Global points are the sum, shown on the leaderboard. Every room's full event log is at `/history/<code>` for the players who sat there.
+- Points: winning a round scores the cards left in other hands; winning a match adds 100. Points and leaderboards are per game. Every room's full event log is at `/<game>/history/<code>` for the players who sat there.
 - Card artwork is drawn on a canvas at runtime (`components/game/card-art.ts`), an original design. No third-party card art or branding is used.
 
 Tables: `room` (snapshot), `room_member` (who sits where, for rejoin), `game_event` (append-only log), `result` (round and match points).

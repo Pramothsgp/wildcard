@@ -1,6 +1,7 @@
 // Messages between browser and game server. Types only, safe to import on the client.
 import type { Color, Face, Side } from "./cards.ts";
 import type { ModeId, Rules } from "./modes.ts";
+import type { GameKind, PartyAction, PartyOpts, PartyView } from "./party-meta.ts";
 import type { ThemeId } from "./themes.ts";
 
 export type Action =
@@ -13,11 +14,13 @@ export type Action =
 
 export type ClientCard = { id: number; face: Face };
 
-export type RoomSettings = { name: string; mode: ModeId; rules: Rules; isPublic: boolean; maxPlayers: number; theme: ThemeId };
+/** Which game the table plays. `mode` and `rules` are for Wildcard; `partyRules` for the other games. */
+export type RoomSettings = { kind: GameKind; name: string; mode: ModeId; rules: Rules; partyRules: PartyOpts; isPublic: boolean; maxPlayers: number; theme: ThemeId };
 
 export type RoomSummary = {
   code: string;
   name: string;
+  kind: GameKind;
   mode: ModeId;
   status: "lobby" | "playing";
   players: number;
@@ -76,6 +79,8 @@ export type RoomView = RoomSettings & {
   you: string;
   players: PlayerView[];
   game: GameView | null;
+  /** Imposter or Night Village, when one of those is running. */
+  party: PartyView | null;
   log: LogLine[];
   chat: ChatLine[];
   /** Reactions from the last few seconds. */
@@ -93,6 +98,7 @@ export type ClientMsg =
   | { t: "start" }
   | { t: "next" }
   | { t: "act"; action: Action }
+  | { t: "party"; action: PartyAction }
   | { t: "chat"; text: string }
   | { t: "react"; text: string }
   | { t: "avatar"; id: string };

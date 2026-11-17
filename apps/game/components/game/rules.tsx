@@ -4,8 +4,10 @@ import { type ReactNode, useMemo, useState } from "react";
 import { LABEL } from "@/game/cards";
 import { CARD_HELP, RULE_INFO, type Toggle, activeToggles, deckSpecials } from "@/game/help";
 import { MODES } from "@/game/modes";
+import { GAMES } from "@/game/party-meta";
 import type { RoomView } from "@/game/protocol";
 import { faceDataUrl } from "./card-art";
+import { PartyRules } from "./party";
 
 /** The "i" button: shows the long explanation inline (works on touch, unlike a tooltip). */
 function Info({ open, onToggle, label }: { open: boolean; onToggle: () => void; label: string }) {
@@ -61,6 +63,23 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 export function RulesPanel({ room, onClose }: { room: RoomView; onClose: () => void }) {
+  if (room.kind !== "wildcard") {
+    return (
+      <div className="absolute inset-0 z-40 grid place-items-center bg-black/60 p-3" onClick={onClose}>
+        <div role="dialog" aria-label="Rules" className="max-h-[90dvh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-2xl border border-white/10 bg-[#11172b] p-5 text-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="flex items-start justify-between gap-3">
+            <h2 className="text-2xl font-black">How to play {GAMES[room.kind].name}</h2>
+            <button type="button" onClick={onClose} aria-label="Close rules" className="rounded-lg bg-white/10 px-3 py-1 text-sm font-bold hover:bg-white/20">Close</button>
+          </div>
+          <PartyRules kind={room.kind} />
+        </div>
+      </div>
+    );
+  }
+  return <WildcardRules room={room} onClose={onClose} />;
+}
+
+function WildcardRules({ room, onClose }: { room: RoomView; onClose: () => void }) {
   const on = activeToggles(room.rules);
   const off = (Object.keys(RULE_INFO) as Toggle[]).filter((k) => !on.includes(k));
   const groups = useMemo(

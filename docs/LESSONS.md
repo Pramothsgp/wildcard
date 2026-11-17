@@ -1,5 +1,10 @@
 # Lessons
 
+## WebSocket stopped connecting after adding the `/[game]` route
+- What: every page sat on "Connecting..." and the browser showed "Connection closed before receiving a handshake response".
+- Root cause: the socket lived at `/ws`. The new dynamic `app/[game]` route also matches `/ws`, so Next's dev upgrade handling claimed the request before `server.ts` could finish its async session check.
+- Prevention: keep the socket under `/api/ws`, where no page can match, and check `curl -o /dev/null -w "%{http_code}" localhost:3001/api/ws` gives 404 (no page) after adding top-level dynamic routes.
+
 ## Room page crashed: "useEffect must not return anything besides a function"
 - What: the game page threw on load with "destroy is not a function".
 - Root cause: effects written as one-line arrows (`useEffect(() => send(...))`) return the expression's value. When that value isn't undefined, React treats it as a cleanup and calls it.

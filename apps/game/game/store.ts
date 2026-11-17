@@ -1,7 +1,11 @@
 // Postgres reads and writes for rooms, logs and results.
 import { db } from "@repo/data";
 import { gameEvent, result, room, roomMember, user } from "@repo/data/schema";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
+import type { GameKind } from "./party-meta.ts";
+
+/** Rooms of one game. Wildcard rooms store their mode (classic, flip...); party rooms store their kind. */
+const ofKind = (kind: GameKind) => (kind === "wildcard" ? notInArray(room.mode, ["imposter", "village"]) : eq(room.mode, kind));
 
 export type RoomRow = typeof room.$inferInsert;
 export type EventRow = Omit<typeof gameEvent.$inferInsert, "id" | "createdAt">;
@@ -64,7 +68,7 @@ export async function codeTaken(code: string) {
 /** The room a user is still seated in, if any: lets them get back after closing the tab. */
 export async function liveRoomFor(userId: string) {
   const rows = await db
-    .select({ code: room.code, name: room.name, status: room.status })
+    .select({ code: room.code, name: room.name, status: room.status, mode: room.mode })
     .from(roomMember)
     .innerJoin(room, eq(room.code, roomMember.roomCode))
     .where(and(eq(roomMember.userId, userId), isNull(roomMember.leftAt), inArray(room.status, ["lobby", "playing"])))
@@ -73,7 +77,7 @@ export async function liveRoomFor(userId: string) {
   return rows[0] ?? null;
 }
 
-export function leaderboard(limit = 50) {
+export function leaderboard(kind: GameKind, limit = 50) {
   return db
     .select({
       userId: result.userId,
@@ -85,12 +89,14 @@ export function leaderboard(limit = 50) {
     })
     .from(result)
     .innerJoin(user, eq(user.id, result.userId))
+    .innerJoin(room, eq(room.code, result.roomCode))
+    .where(ofKind(kind))
     .groupBy(result.userId, user.name)
     .orderBy(desc(sql`sum(${result.points})`))
     .limit(limit);
 }
 
-export async function statsFor(userId: string) {
+export async function statsFor(userId: string, kind: GameKind) {
   const rows = await db
     .select({
       points: sql<number>`coalesce(sum(${result.points}), 0)::int`,
@@ -99,7 +105,8 @@ export async function statsFor(userId: string) {
       roundsWon: sql<number>`count(*) filter (where ${result.round} > 0 and ${result.won})::int`,
     })
     .from(result)
-    .where(eq(result.userId, userId))
+    .innerJoin(room, eq(room.code, result.roomCode))
+    .where(and(eq(result.userId, userId), ofKind(kind)))
     .limit(1);
   return rows[0];
 }
@@ -116,14 +123,19 @@ export async function achievementsFor(userId: string) {
 }
 
 /** Rooms a user played in, newest first. */
-export function historyFor(userId: string, limit = 30) {
+export function historyFor(userId: string, kind: GameKind, limit = 30) {
   return db
     .select({ code: room.code, name: room.name, mode: room.mode, status: room.status, updatedAt: room.updatedAt })
     .from(roomMember)
     .innerJoin(room, eq(room.code, roomMember.roomCode))
-    .where(eq(roomMember.userId, userId))
+    .where(and(eq(roomMember.userId, userId), ofKind(kind)))
     .orderBy(desc(room.updatedAt))
     .limit(limit);
+}
+
+export async function roomMode(code: string) {
+  const rows = await db.select({ mode: room.mode }).from(room).where(eq(room.code, code)).limit(1);
+  return rows[0]?.mode ?? null;
 }
 
 export async function isMember(code: string, userId: string) {

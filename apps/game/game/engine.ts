@@ -80,7 +80,10 @@ export function startRound(s: GameState): GameEvent[] {
   if (s.phase === "playing") fail("Round already in progress");
   if (s.phase === "matchOver") for (const p of s.seats) p.score = 0;
   s.round += 1;
-  s.drawPile = shuffle(buildDeck(s.rules.deck, shuffle));
+  // Big tables shuffle in extra decks (ids kept unique) so the deal leaves a healthy draw pile.
+  const one = buildDeck(s.rules.deck, shuffle);
+  const copies = Math.ceil((s.seats.length * s.rules.handSize + 40) / one.length);
+  s.drawPile = shuffle(Array.from({ length: copies }, (_, k) => (k ? buildDeck(s.rules.deck, shuffle) : one).map((c) => ({ ...c, id: c.id + k * one.length }))).flat());
   s.discard = [];
   s.side = "light";
   s.direction = 1;

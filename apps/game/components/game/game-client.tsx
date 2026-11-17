@@ -3,10 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DARK_COLORS, LIGHT_COLORS, type Color } from "@/game/cards";
+import { type GameKind, roomPath } from "@/game/party-meta";
 import type { Action, RoomView, ServerMsg } from "@/game/protocol";
 import { themeOf } from "@/game/themes";
 import { send, useSocket, useSocketStatus } from "@/lib/socket";
 import { ActionBar, Btn, LobbyPanel, Modal, RoundModal, SidePanel, TopBar } from "./hud";
+import { PartyPanel } from "./party";
+import { PartyStage } from "./party-stage";
 import { RulesPanel } from "./rules";
 import { HEX } from "./card-art";
 import { TableScene } from "./scene";
@@ -15,7 +18,8 @@ import { sound } from "./sound";
 
 type Pick = { cardId: number; color?: Color; needColor: boolean; needTarget: boolean };
 
-export function GameClient({ code }: { code: string }) {
+/** One table. `kind` is the game in the URL; a code from another game redirects to its own path. */
+export function GameClient({ code, kind }: { code: string; kind: GameKind }) {
   const router = useRouter();
   const [room, setRoom] = useState<RoomView | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -26,10 +30,13 @@ export function GameClient({ code }: { code: string }) {
 
   const onMessage = useCallback((m: ServerMsg) => {
     if (m.t === "welcome") send({ t: "join", code });
-    if (m.t === "state" && m.room.code === code) setRoom(m.room);
+    if (m.t === "state" && m.room.code === code) {
+      if (m.room.kind !== kind) return router.replace(roomPath(m.room.kind, code));
+      setRoom(m.room);
+    }
     if (m.t === "error") setToast(m.message);
-    if (m.t === "left") router.push("/");
-  }, [code, router]);
+    if (m.t === "left") router.push(`/${kind}`);
+  }, [code, kind, router]);
   useSocket(onMessage);
   useEffect(() => {
     send({ t: "join", code });
@@ -52,6 +59,13 @@ export function GameClient({ code }: { code: string }) {
     if (g.hand.length > p.hand.length) sound("draw", pack);
     if (g.turn === room!.you && p.turn !== room!.you && g.phase === "playing") sound("turn", pack);
     if (g.phase !== "playing" && p.phase === "playing") sound("win", pack);
+  }, [room]);
+  // Party games: a chime when the phase moves on.
+  const lastPhase = useRef<string | null>(null);
+  useEffect(() => {
+    const ph = room?.party ? `${room.party.round}:${room.party.phase}` : null;
+    if (ph && lastPhase.current && ph !== lastPhase.current) sound(room!.party!.phase === "reveal" || room!.party!.phase === "over" ? "win" : "turn", themeOf(room!.theme).sound);
+    lastPhase.current = ph;
   }, [room]);
 
   const act = useCallback((action: Action) => send({ t: "act", action }), []);
@@ -81,8 +95,8 @@ export function GameClient({ code }: { code: string }) {
             <p className="text-lg font-semibold">{toast}</p>
             <p className="text-sm text-white/60">The table may have finished or closed.</p>
             <div className="flex justify-center gap-2">
-              <Btn onClick={() => router.push("/")}>Back to lobby</Btn>
-              <Btn variant="ghost" onClick={() => router.push(`/history/${code}`)}>See its game log</Btn>
+              <Btn onClick={() => router.push(`/${kind}`)}>Back to lobby</Btn>
+              <Btn variant="ghost" onClick={() => router.push(`/${kind}/history/${code}`)}>See its game log</Btn>
             </div>
           </div>
         ) : (
@@ -97,7 +111,7 @@ export function GameClient({ code }: { code: string }) {
 
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-[#0a0705] text-white select-none">
-      <Table room={room} onPlay={onPlay} onDraw={onDraw} />
+      {room.kind === "wildcard" ? <Table room={room} onPlay={onPlay} onDraw={onDraw} /> : <PartyStage room={room} />}
       <TopBar room={room} status={status} onRules={() => setRules(true)} />
       <SidePanel room={room} />
       {room.status === "lobby" && <LobbyPanel room={room} onRules={() => setRules(true)} />}
@@ -105,10 +119,11 @@ export function GameClient({ code }: { code: string }) {
       {g && g.phase === "playing" && room.status === "playing" && <ActionBar room={room} act={act} />}
       {room.status === "playing" && <ReactionBar pack={themeOf(room.theme).sound} />}
       {g && g.phase !== "playing" && <RoundModal room={room} />}
+      {room.party && room.status !== "abandoned" && <PartyPanel room={room} />}
       {room.status === "abandoned" && (
         <Modal title="Table closed">
           <p className="text-white/70">Everyone left, so this game ended. It is saved in your history.</p>
-          <Btn onClick={() => router.push("/")}>Back to lobby</Btn>
+          <Btn onClick={() => router.push(`/${kind}`)}>Back to lobby</Btn>
         </Modal>
       )}
       {pick && (

@@ -31,6 +31,14 @@ test("deck sizes", () => {
   }
 });
 
+test("20 players: extra decks are shuffled in and every card id stays unique", () => {
+  const s = game("classic", 20);
+  const all = [...s.drawPile, ...s.discard, ...s.seats.flatMap((p) => p.hand)];
+  expect(all.length).toBe(216);
+  expect(new Set(all.map((c) => c.id)).size).toBe(216);
+  expect(s.drawPile.length).toBeGreaterThan(40);
+});
+
 test("matching colour or value is playable, others are not", () => {
   const s = game();
   rig(s, card("red", "5"), [[card("red", "2"), card("blue", "5"), card("green", "7"), card("wild", "wild")]]);

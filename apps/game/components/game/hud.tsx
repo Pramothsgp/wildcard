@@ -5,10 +5,12 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { FIELD_HINTS, RULE_INFO, type Toggle, ordinal } from "@/game/help";
 import { BOT_LEVELS, type BotLevel, MODES, type ModeId, type Rules, ruleChanges } from "@/game/modes";
+import { GAMES, type PartyOpts, roomPath } from "@/game/party-meta";
 import type { Action, RoomView } from "@/game/protocol";
 import { THEMES, type ThemeId } from "@/game/themes";
 import { send } from "@/lib/socket";
 import { HEX, backDataUrl, faceDataUrl } from "./card-art";
+import { PartyOptions } from "./party";
 import { FieldOption, RuleOption } from "./rules";
 import { AvatarPicker } from "./social";
 
@@ -90,12 +92,12 @@ export function TopBar({ room, status, onRules }: { room: RoomView; status: stri
   return (
     <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 p-3">
       <div className={`${glass} flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm`}>
-        <span className="bg-gradient-to-b from-[#f7e3a3] to-[#c9973a] bg-clip-text font-black tracking-[0.2em] text-transparent">WILDCARD</span>
+        <Link href={`/${room.kind}`} className="bg-gradient-to-b from-[#f7e3a3] to-[#c9973a] bg-clip-text font-black uppercase tracking-[0.2em] text-transparent">{GAMES[room.kind].name}</Link>
         <span className="h-4 w-px bg-amber-300/30" aria-hidden />
         <span className="font-semibold text-amber-50">{room.name}</span>
-        <span className={chip}>{MODES[room.mode].name}</span>
-        <span className={chip}>{THEMES[room.theme ?? "classic"].name} cards</span>
-        {ruleChanges(room.mode, room.rules).map((r) => (
+        {room.kind === "wildcard" && <span className={chip}>{MODES[room.mode].name}</span>}
+        <span className={chip}>{THEMES[room.theme ?? "classic"].name} {room.kind === "wildcard" ? "cards" : "theme"}</span>
+        {room.kind === "wildcard" && ruleChanges(room.mode, room.rules).map((r) => (
           <span key={r} className="rounded bg-amber-400/20 px-2 py-0.5 text-xs text-amber-200">{r}</span>
         ))}
         {g && <span className="text-amber-100/70">Round {g.round}</span>}
@@ -104,7 +106,7 @@ export function TopBar({ room, status, onRules }: { room: RoomView; status: stri
           type="button"
           className="rounded border border-amber-300/30 px-2 py-0.5 font-mono text-xs text-amber-100 hover:bg-amber-300/10"
           onClick={() => {
-            void navigator.clipboard?.writeText(`${location.origin}/room/${room.code}`);
+            void navigator.clipboard?.writeText(`${location.origin}${roomPath(room.kind, room.code)}`);
             setCopied(true);
             setTimeout(() => setCopied(false), 1500);
           }}
@@ -244,7 +246,7 @@ export function SidePanel({ room }: { room: RoomView }) {
                   <td className="py-1 text-right font-mono">{p.score}</td>
                 </tr>
               ))}
-              <tr><td className="pt-2 text-xs text-white/50" colSpan={2}>{room.rules.targetScore ? `First to ${room.rules.targetScore} wins` : "Single round"}</td></tr>
+              <tr><td className="pt-2 text-xs text-white/50" colSpan={2}>{room.kind !== "wildcard" ? `Most points after ${room.partyRules.rounds} rounds wins` : room.rules.targetScore ? `First to ${room.rules.targetScore} wins` : "Single round"}</td></tr>
             </tbody>
           </table>
         )}
@@ -269,8 +271,9 @@ export function SidePanel({ room }: { room: RoomView }) {
 
 export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => void }) {
   const host = room.hostId === room.you;
-  const set = (s: Partial<Pick<RoomView, "name" | "mode" | "isPublic" | "maxPlayers" | "theme">> & { rules?: Partial<Rules> }) =>
-    send({ t: "settings", settings: { ...s, rules: s.rules ? { ...room.rules, ...s.rules } : s.mode ? undefined : room.rules } });
+  const set = (s: Partial<Pick<RoomView, "name" | "mode" | "isPublic" | "maxPlayers" | "theme">> & { rules?: Partial<Rules>; partyRules?: Partial<PartyOpts> }) =>
+    send({ t: "settings", settings: { ...s, rules: s.rules ? { ...room.rules, ...s.rules } : s.mode ? undefined : room.rules, partyRules: { ...room.partyRules, ...s.partyRules } } });
+  const wild = room.kind === "wildcard";
   return (
     <div className="absolute inset-0 z-20 grid place-items-center overflow-y-auto bg-black/40 p-4">
       <div className={`${glass} w-full max-w-2xl space-y-5 p-6`}>
@@ -308,6 +311,9 @@ export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => v
         </section>
 
         <section className="space-y-3">
+          {!wild && <h2 className="text-sm font-bold text-white/70">{GAMES[room.kind].name} options</h2>}
+          {!wild && <PartyOptions room={room} host={host} onChange={(partyRules) => set({ partyRules })} />}
+          {wild && <>
           <h2 className="text-sm font-bold text-white/70">Game mode</h2>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {(Object.keys(MODES) as ModeId[]).map((id) => (
@@ -323,16 +329,20 @@ export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => v
               </button>
             ))}
           </div>
-          <h2 className="pt-1 text-sm font-bold text-white/70">Card theme <span className="font-normal text-white/50">· also names the bots</span></h2>
+          </>}
+          <h2 className="pt-1 text-sm font-bold text-white/70">{wild ? "Card theme" : "Theme"} <span className="font-normal text-white/50">· {wild ? "also names the bots" : "sets the table and bot names"}</span></h2>
           <ThemePicker value={room.theme ?? "classic"} disabled={!host} onChange={(theme) => set({ theme })} />
+          {wild && <>
           <h2 className="pt-1 text-sm font-bold text-white/70">House rules <span className="font-normal text-white/50">· tap i for the full explanation</span></h2>
           <div className="grid items-start gap-2 sm:grid-cols-2">
             {(Object.keys(RULE_INFO) as Toggle[]).map((key) => (
               <RuleOption key={key} k={key} checked={room.rules[key]} disabled={!host} onChange={(v) => set({ rules: { [key]: v } })} />
             ))}
           </div>
+          </>}
           <h2 className="pt-1 text-sm font-bold text-white/70">Table settings</h2>
           <div className="grid gap-2 sm:grid-cols-2">
+            {wild && <>
             <FieldOption hint={FIELD_HINTS.targetScore}>
               <NumberField label="Target score" value={room.rules.targetScore} disabled={!host} step={100} onChange={(v) => set({ rules: { targetScore: v } })} />
             </FieldOption>
@@ -342,10 +352,11 @@ export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => v
             <FieldOption hint={FIELD_HINTS.handSize}>
               <NumberField label="Starting hand" value={room.rules.handSize} disabled={!host} step={1} onChange={(v) => set({ rules: { handSize: v } })} />
             </FieldOption>
+            </>}
             <FieldOption hint={FIELD_HINTS.maxPlayers}>
               <NumberField label="Max players" value={room.maxPlayers} disabled={!host} step={1} onChange={(v) => set({ maxPlayers: v })} />
             </FieldOption>
-            <FieldOption hint={FIELD_HINTS.botLevel}>
+            {wild && <FieldOption hint={FIELD_HINTS.botLevel}>
               <label className="flex items-center justify-between gap-2 font-semibold">
                 Bot skill
                 <select
@@ -357,7 +368,7 @@ export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => v
                   {BOT_LEVELS.map((l) => <option key={l} value={l} className="bg-[#1d150e]">{l}</option>)}
                 </select>
               </label>
-            </FieldOption>
+            </FieldOption>}
             <FieldOption hint={FIELD_HINTS.isPublic}>
               <label className="flex items-center gap-2 font-semibold">
                 <input type="checkbox" disabled={!host} checked={room.isPublic} onChange={(e) => set({ isPublic: e.target.checked })} className="accent-amber-400" />
@@ -371,7 +382,7 @@ export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => v
           {host ? (
             <>
               <Btn variant="ghost" disabled={room.players.length >= room.maxPlayers} onClick={() => send({ t: "addBot" })}>Add bot</Btn>
-              <Btn disabled={room.players.length < 2} onClick={() => send({ t: "start" })}>Start game</Btn>
+              <Btn disabled={room.players.length < GAMES[room.kind].min} title={`Needs ${GAMES[room.kind].min} players`} onClick={() => send({ t: "start" })}>Start game</Btn>
             </>
           ) : (
             <p className="text-sm text-white/60">Waiting for the host to start...</p>
@@ -457,7 +468,7 @@ export function RoundModal({ room }: { room: RoomView }) {
       <div className="flex flex-wrap justify-end gap-2">
         {match ? (
           <>
-            <Link href={`/history/${room.code}`} className="rounded-xl bg-white/10 px-4 py-2 text-sm font-bold hover:bg-white/20">Game log</Link>
+            <Link href={`/${room.kind}/history/${room.code}`} className="rounded-xl bg-white/10 px-4 py-2 text-sm font-bold hover:bg-white/20">Game log</Link>
             {host ? <Btn onClick={() => send({ t: "next" })}>Rematch</Btn> : <Btn variant="ghost" onClick={() => send({ t: "leave" })}>Back to lobby</Btn>}
           </>
         ) : (

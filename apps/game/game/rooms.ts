@@ -3,18 +3,22 @@
 // ponytail: single process (Cloud Run maxScale 1). More instances need shared state first.
 import { randomInt } from "node:crypto";
 import type { WebSocket } from "ws";
-import { type Color, DARK_COLORS, LIGHT_COLORS, face } from "./cards.ts";
 import { botAction } from "./bots.ts";
-import { GameError, type GameEvent, type GameState, act, canPlay, createGame, startRound, topFace } from "./engine.ts";
-import { MODES, isModeId, ruleChanges, sanitizeRules } from "./modes.ts";
+import { cleanAction, cleanPartyAction, cleanSettings } from "./clean.ts";
+import { GameError, type GameEvent, type GameState, act, createGame, startRound } from "./engine.ts";
+import { MODES, ruleChanges } from "./modes.ts";
+import { type PartyState, actParty, botParty, createParty, startParty, timeoutParty } from "./party.ts";
+import { DEFAULT_PARTY, GAMES } from "./party-meta.ts";
 import { AVATARS, REACTIONS, REACTION_MS } from "./help.ts";
 import type { Action, ChatLine, ClientMsg, LogLine, Reaction, RoomSettings, RoomSummary, RoomView, ServerMsg } from "./protocol.ts";
 import * as store from "./store.ts";
-import { THEMES, botName, isThemeId } from "./themes.ts";
+import { viewFor } from "./view.ts";
+import { THEMES, botName } from "./themes.ts";
 
 type Member = { id: string; name: string; bot: boolean; left?: boolean; avatar?: string };
 type Status = RoomView["status"];
-type Saved = { settings: RoomSettings; hostId: string; members: Member[]; game: GameState | null; seq: number; log: LogLine[]; chat: ChatLine[] };
+/** `game` is a Wildcard game, `party` an Imposter or Night Village game. At most one is set. */
+export type Saved = { settings: RoomSettings; hostId: string; members: Member[]; game: GameState | null; party?: PartyState | null; seq: number; log: LogLine[]; chat: ChatLine[] };
 export type Conn = { ws: WebSocket; user: { id: string; name: string }; room: string | null; lobby: boolean; tokens: number; lastChat: number; lastReact: number };
 
 // No constructor parameter properties: the server runs on Node's type stripping.
@@ -100,7 +104,7 @@ function handle(c: Conn, m: ClientMsg) {
       leaveLobbyRoom(uid);
       need(!liveRoomOf(uid), "Finish or leave your current game first");
       const code = newCode();
-      const settings = cleanSettings(m.settings, { name: `${c.user.name}'s table`, mode: "classic", isPublic: true, maxPlayers: 6, rules: MODES.classic.rules, theme: "classic" });
+      const settings = cleanSettings(m.settings, { kind: "wildcard", name: `${c.user.name}'s table`, mode: "classic", isPublic: true, maxPlayers: 6, rules: MODES.classic.rules, partyRules: DEFAULT_PARTY, theme: "classic" });
       const room = new Room(code, "lobby", { settings, hostId: uid, members: [{ id: uid, name: c.user.name, bot: false }], game: null, seq: 0, log: [], chat: [] });
       rooms.set(code, room);
       attach(c, room);
@@ -166,12 +170,15 @@ function handle(c: Conn, m: ClientMsg) {
     case "settings": {
       need(isHost && room.status === "lobby", "Only the host can change settings before the start");
       const prevTheme = room.s.settings.theme;
-      room.s.settings = cleanSettings(m.settings, room.s.settings);
+      // The game is fixed when the table opens: it is part of the table's URL.
+      room.s.settings = { ...cleanSettings(m.settings, room.s.settings), kind: room.s.settings.kind ?? "wildcard" };
       need(room.s.members.length <= room.s.settings.maxPlayers, "More players seated than that");
       // Bots take names from the theme, so a new theme renames them.
       if (room.s.settings.theme !== prevTheme) room.s.members.filter((x) => x.bot).forEach((b, i) => (b.name = botName(room.s.settings.theme, i)));
-      const extra = ruleChanges(room.s.settings.mode, room.s.settings.rules);
-      const text = `Rules: ${MODES[room.s.settings.mode].name}${extra.length ? `, ${extra.join(", ")}` : ""} · ${THEMES[room.s.settings.theme].name} cards`;
+      const { kind, mode, rules, theme } = room.s.settings;
+      const extra = ruleChanges(mode, rules);
+      const what = (kind ?? "wildcard") === "wildcard" ? `${MODES[mode].name}${extra.length ? `, ${extra.join(", ")}` : ""}` : GAMES[kind].name;
+      const text = `Rules: ${what} · ${THEMES[theme].name} theme`;
       return commit(room, [{ kind: "settings", text, seat: -1 }], uid);
     }
     case "addBot": {
@@ -196,19 +203,26 @@ function handle(c: Conn, m: ClientMsg) {
     }
     case "start": {
       need(isHost, "Only the host can start");
-      if (room.status === "playing" && room.s.game?.phase === "roundOver") return nextRound(room, uid);
+      if (dealNext(room, uid)) return;
       need(room.status === "lobby", "Already started");
-      need(room.s.members.length >= 2, "Need at least 2 players. Add a bot?");
+      const kind = room.s.settings.kind ?? "wildcard";
+      need(room.s.members.length >= GAMES[kind].min, `${GAMES[kind].name} needs at least ${GAMES[kind].min} players. Add a bot?`);
+      if (kind !== "wildcard") {
+        const p = (room.s.party = createParty(kind, room.s.members.map(({ id, name, bot }) => ({ id, name, bot })), room.s.settings.partyRules ?? DEFAULT_PARTY));
+        room.status = "playing";
+        return playParty(room, uid, () => [{ kind: "start", text: `Game on: ${GAMES[kind].name}`, seat: -1 }, ...startParty(p)]);
+      }
       room.s.game = createGame(room.s.settings.rules, room.s.members.map(({ id, name, bot }) => ({ id, name, bot })));
       room.status = "playing";
       return commit(room, [{ kind: "start", text: `Game on: ${MODES[room.s.settings.mode].name}`, seat: -1 }, ...startRound(room.s.game)], uid);
     }
     case "next": {
       need(isHost, "Only the host can do that");
-      if (room.s.game?.phase === "roundOver") return nextRound(room, uid);
+      if (dealNext(room, uid)) return;
       need(room.status === "finished", "Game still running");
       room.s.members = room.s.members.filter((x) => !x.left);
       room.s.game = null;
+      room.s.party = null;
       room.status = "lobby";
       return commit(room, [{ kind: "rematch", text: "Back to the lobby for a rematch", seat: -1 }], uid);
     }
@@ -218,7 +232,40 @@ function handle(c: Conn, m: ClientMsg) {
       need(seat >= 0, "You are not seated in this game");
       return play(room, seat, cleanAction(m.action));
     }
+    case "party": {
+      const p = room.s.party;
+      need(room.status === "playing" && p, "No game running");
+      const seat = p!.players.findIndex((x) => x.id === uid);
+      need(seat >= 0, "You are not seated in this game");
+      const action = cleanPartyAction(m.action);
+      return playParty(room, uid, () => actParty(p!, seat, action));
+    }
   }
+}
+
+/** Host skips the wait between rounds. True if a round was dealt. */
+function dealNext(room: Room, uid: string): boolean {
+  if (room.status !== "playing") return false;
+  if (room.s.game?.phase === "roundOver") nextRound(room, uid);
+  else if (room.s.party?.phase === "reveal") playParty(room, uid, () => startParty(room.s.party!));
+  else return false;
+  return true;
+}
+
+/** Run a party-game step, then record round and match results like Wildcard does. */
+function playParty(room: Room, actorId: string, step: () => GameEvent[]) {
+  const p = room.s.party!;
+  const events = step();
+  const results: store.ResultRow[] = [];
+  const human = (i: number) => !p.players[i].bot;
+  if (events.some((e) => e.kind === "roundOver")) {
+    p.gained.forEach((points, i) => points > 0 && human(i) && results.push({ roomCode: room.code, round: p.round, userId: p.players[i].id, points, won: true }));
+  }
+  if (events.some((e) => e.kind === "matchOver")) {
+    room.status = "finished";
+    p.players.forEach((x, i) => human(i) && results.push({ roomCode: room.code, round: 0, userId: x.id, points: i === p.champ ? 100 : 0, won: i === p.champ }));
+  }
+  commit(room, events, actorId, results);
 }
 
 function need(cond: unknown, msg: string) {
@@ -253,11 +300,12 @@ type Ev = GameEvent & { hidden?: boolean };
 /** Record events, save, then show everyone the new state. */
 function commit(room: Room, events: Ev[], actorId: string, results: store.ResultRow[] = []) {
   const g = room.s.game;
+  const seats = g?.seats ?? room.s.party?.players;
   const rows: store.EventRow[] = events.map((e) => ({
     roomCode: room.code,
     seq: ++room.s.seq,
-    round: g?.round ?? 0,
-    actorId: e.seat !== undefined && e.seat >= 0 && g ? g.seats[e.seat].id : actorId,
+    round: g?.round ?? room.s.party?.round ?? 0,
+    actorId: e.seat !== undefined && e.seat >= 0 && seats?.[e.seat] ? seats[e.seat].id : actorId,
     kind: e.kind,
     text: e.text,
     data: e.data ?? null,
@@ -267,7 +315,8 @@ function commit(room: Room, events: Ev[], actorId: string, results: store.Result
   if (!humansLeft(room) && (room.status === "lobby" || room.status === "playing")) room.status = "abandoned";
   const s = room.s;
   const row: store.RoomRow = {
-    code: room.code, name: s.settings.name, hostId: s.hostId, mode: s.settings.mode, isPublic: s.settings.isPublic,
+    // Party games store their kind as the mode, so history can name them.
+    code: room.code, name: s.settings.name, hostId: s.hostId, mode: (s.settings.kind ?? "wildcard") === "wildcard" ? s.settings.mode : s.settings.kind, isPublic: s.settings.isPublic,
     status: room.status, state: JSON.parse(JSON.stringify(s)),
     finishedAt: room.status === "finished" || room.status === "abandoned" ? new Date() : null,
   };
@@ -296,6 +345,7 @@ function evict(room: Room) {
 function schedule(room: Room) {
   clearTimeout(room.timer);
   room.deadline = null;
+  if (room.s.party) return scheduleParty(room, room.s.party);
   const g = room.s.game;
   if (room.status !== "playing" || !g || !humansOnline(room)) return;
   if (g.phase === "roundOver") {
@@ -318,6 +368,23 @@ function schedule(room: Room) {
       play(room, seat, g.drawn !== null ? { type: "pass" } : { type: "draw" });
     }
   }), delay);
+}
+
+/** Party games: the next bot move or the phase clock, whichever comes first. */
+function scheduleParty(room: Room, p: PartyState) {
+  if (room.status !== "playing" || !humansOnline(room) || p.phase === "over") return;
+  const now = Date.now();
+  room.deadline = p.ends;
+  let delay = p.ends === null ? null : Math.max(0, p.ends - now);
+  // Nobody waits out the full clock for a clue from someone who has gone.
+  if (p.kind === "imposter" && p.phase === "clues" && !p.players[p.turn].bot && !connected(room, p.players[p.turn].id)) delay = Math.min(delay ?? 3000, 3000);
+  const bot = botParty(p, now);
+  const botDelay = bot ? Math.max(800 + randomInt(700), bot.at - now) : null;
+  if (bot && botDelay !== null && (delay === null || botDelay < delay)) {
+    room.timer = setTimeout(() => safely(room, () => playParty(room, p.players[bot.seat].id, () => actParty(p, bot.seat, bot.action))), botDelay);
+  } else if (delay !== null) {
+    room.timer = setTimeout(() => safely(room, () => playParty(room, "system", () => timeoutParty(p))), delay);
+  }
 }
 
 function safely(room: Room, fn: () => void) {
@@ -374,55 +441,9 @@ const seatOf = (r: Room, uid: string) => r.s.game?.seats.find((p) => p.id === ui
 function broadcast(room: Room) {
   for (const [uid, set] of room.sockets) {
     if (!set.size) continue;
-    const view = viewFor(room, uid);
+    const view = viewFor(room, uid, (id) => connected(room, id));
     for (const c of set) send(c, { t: "state", room: view });
   }
-}
-
-export function viewFor(room: Room, uid: string): RoomView {
-  const { settings, game: g, hostId, members, log, chat } = room.s;
-  const avatarOf = (id: string) => members.find((m) => m.id === id)?.avatar ?? null;
-  const other = g?.side === "dark" ? "light" : "dark";
-  // Players who are done (playing on) watch with every hand face up.
-  const watching = g?.phase === "playing" && !!g.seats.find((p) => p.id === uid)?.place;
-  const players = g
-    ? g.seats.map((p) => ({
-        id: p.id, name: p.name, bot: p.bot, auto: p.auto, connected: p.bot || connected(room, p.id),
-        count: p.hand.length, score: p.score, calledUno: p.calledUno, out: p.out,
-        backs: g.rules.deck === "flip" && p.id !== uid ? p.hand.map((c) => face(c, other)) : null,
-        place: p.place ?? null,
-        reveal: watching && p.id !== uid ? p.hand.map((c) => face(c, g.side)) : null,
-        avatar: avatarOf(p.id),
-      }))
-    : members.map((m) => ({ id: m.id, name: m.name, bot: m.bot, auto: false, connected: m.bot || connected(room, m.id), count: 0, score: 0, calledUno: false, out: false, backs: null, place: null, reveal: null, avatar: m.avatar ?? null }));
-  let game: RoomView["game"] = null;
-  if (g) {
-    const mine = g.seats.findIndex((p) => p.id === uid);
-    const hand = mine >= 0 ? g.seats[mine].hand : [];
-    const top = topFace(g);
-    const playable = g.phase !== "playing" || mine < 0 ? [] : hand.filter((c) => {
-      if (g.turn === mine) return canPlay(g, c) && (g.drawn === null || c.id === g.drawn);
-      const f = face(c, g.side);
-      return g.rules.jumpIn && !g.pendingDraw && f.color !== "wild" && f.color === top.color && f.value === top.value;
-    }).map((c) => c.id);
-    game = {
-      phase: g.phase, round: g.round, side: g.side, color: g.color, direction: g.direction,
-      turn: g.seats[g.turn].id, pendingDraw: g.pendingDraw,
-      canChallenge: g.challenge !== null && g.turn === mine,
-      drawn: g.turn === mine ? g.drawn : null,
-      unoTarget: g.unoTarget === null ? null : g.seats[g.unoTarget].id,
-      pile: g.discard.slice(-8).map((c) => ({ id: c.id, face: face(c, g.side) })),
-      drawCount: g.drawPile.length,
-      hand: hand.map((c) => ({ id: c.id, face: face(c, g.side) })),
-      playable,
-      roundWinner: g.roundWinner === null ? null : g.seats[g.roundWinner].id,
-      lastRoundPoints: g.lastRoundPoints,
-      deadline: room.deadline,
-    };
-  }
-  const reactions = room.reactions.filter((x) => Date.now() - x.at < REACTION_MS);
-  // Older saved tables can name a theme that no longer exists (e.g. "chola" before Moovendar).
-  return { ...settings, theme: isThemeId(settings.theme) ? settings.theme : "classic", code: room.code, status: room.status, hostId, you: uid, players, game, log, chat, reactions };
 }
 
 let lobbyTimer: NodeJS.Timeout | undefined;
@@ -439,7 +460,7 @@ function summaries(): RoomSummary[] {
   return [...rooms.values()]
     .filter((r) => r.s.settings.isPublic && (r.status === "lobby" || r.status === "playing"))
     .map((r) => ({
-      code: r.code, name: r.s.settings.name, mode: r.s.settings.mode, status: r.status as "lobby" | "playing",
+      code: r.code, name: r.s.settings.name, kind: r.s.settings.kind ?? "wildcard", mode: r.s.settings.mode, status: r.status as "lobby" | "playing",
       players: r.s.members.filter((m) => !m.left).length, maxPlayers: r.s.settings.maxPlayers,
       host: r.s.members.find((m) => m.id === r.s.hostId)?.name ?? "",
     }))
@@ -453,36 +474,6 @@ function newCode(): string {
     // ponytail: in-memory check only; finished rooms in the DB could collide (32^5 codes, rare). The upsert would then reuse the row.
     if (!rooms.has(code)) return code;
   }
-}
-
-function cleanSettings(input: Partial<RoomSettings> | undefined, prev: RoomSettings): RoomSettings {
-  const i = input && typeof input === "object" ? input : {};
-  const mode = isModeId(i.mode) ? i.mode : prev.mode;
-  const name = typeof i.name === "string" && i.name.trim() ? i.name.trim().slice(0, 40) : prev.name;
-  const maxPlayers = typeof i.maxPlayers === "number" ? Math.min(10, Math.max(2, Math.round(i.maxPlayers))) : prev.maxPlayers;
-  const rules = sanitizeRules(mode, i.rules ?? (mode === prev.mode ? prev.rules : undefined));
-  const theme = isThemeId(i.theme) ? i.theme : isThemeId(prev.theme) ? prev.theme : "classic";
-  return { name, mode, rules, maxPlayers, theme, isPublic: typeof i.isPublic === "boolean" ? i.isPublic : prev.isPublic };
-}
-
-const COLORS = new Set<string>([...LIGHT_COLORS, ...DARK_COLORS]);
-function cleanAction(a: unknown): Action {
-  const o = (a && typeof a === "object" ? a : {}) as Record<string, unknown>;
-  switch (o.type) {
-    case "play":
-      if (typeof o.cardId !== "number") break;
-      return {
-        type: "play", cardId: o.cardId,
-        color: typeof o.color === "string" && COLORS.has(o.color) ? (o.color as Color) : undefined,
-        target: typeof o.target === "string" ? o.target : undefined,
-      };
-    case "catch":
-      if (typeof o.target === "string") return { type: "catch", target: o.target };
-      break;
-    case "draw": case "pass": case "uno": case "challenge":
-      return { type: o.type };
-  }
-  throw new GameError("Bad action");
 }
 
 const logErr = (err: unknown) => console.error("rooms: db write failed", err);

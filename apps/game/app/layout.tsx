@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Wildcard",
-  description: "Multiplayer 3D shedding card game. Match colours and numbers, empty your hand first.",
+  title: "Game Night",
+  description: "Multiplayer games with friends: Wildcard, Imposter and Night Village.",
 };
 export const viewport: Viewport = { themeColor: "#0b1020" };
 

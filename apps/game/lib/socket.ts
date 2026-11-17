@@ -20,7 +20,7 @@ function setStatus(s: Status) {
 function open() {
   if (ws) return;
   setStatus("connecting");
-  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`);
+  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/ws`);
   ws.addEventListener("open", () => {
     retry = 0;
     setStatus("open");
