@@ -36,6 +36,8 @@ export const PACKS = {
   cricket: "Cricket",
   festivals: "Festivals",
   jobs: "Jobs",
+  home: "Around the house",
+  transport: "Getting around",
 } as const;
 export type PackId = Exclude<keyof typeof PACKS, "mixed">;
 export const isPack = (v: unknown): v is keyof typeof PACKS => typeof v === "string" && v in PACKS;
