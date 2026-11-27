@@ -105,7 +105,8 @@ export function TopBar({ room, status, onRules }: { room: RoomView; status: stri
   }, []);
   const g = room.game;
   return (
-    <div className="absolute inset-x-0 top-0 z-10 flex items-start justify-between gap-2 p-3">
+    // Above the lobby panel (z-20), so Leave, End game and Rules work before the game starts too.
+    <div className="absolute inset-x-0 top-0 z-[25] flex items-start justify-between gap-2 p-3">
       <div className={`${glass} flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm`}>
         <Link href={`/${room.kind}`} className="bg-gradient-to-b from-[#f7e3a3] to-[#c9973a] bg-clip-text font-black uppercase tracking-[0.2em] text-transparent">{GAMES[room.kind].name}</Link>
         <span className="h-4 w-px bg-amber-300/30" aria-hidden />
@@ -305,7 +306,7 @@ export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => v
   const c = COPY[room.kind];
   const short = GAMES[room.kind].min - room.players.length;
   return (
-    <div className="absolute inset-0 z-20 grid place-items-center overflow-y-auto bg-black/40 p-4">
+    <div className="absolute inset-0 z-20 grid place-items-center overflow-y-auto bg-black/40 px-4 pb-4 pt-52 sm:pt-24">
       <div className={`${glass} w-full max-w-2xl space-y-5 p-6`}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
