@@ -18,6 +18,9 @@ export type ClientCard = { id: number; face: Face };
 /** Which game the table plays. `mode` and `rules` are for Wildcard; `partyRules` for the other games. */
 export type RoomSettings = { kind: GameKind; name: string; mode: ModeId; rules: Rules; partyRules: PartyOpts; isPublic: boolean; maxPlayers: number; theme: ThemeId };
 
+/** A settings change: only what changed. Party options are merged into the current ones on the server. */
+export type SettingsChange = Partial<Omit<RoomSettings, "partyRules">> & { partyRules?: Partial<PartyOpts> };
+
 export type RoomSummary = {
   code: string;
   name: string;
@@ -96,7 +99,7 @@ export type ClientMsg =
   /** "I just changed my name": the server reads it from the account, it isn't sent. */
   | { t: "rename" }
   | { t: "end" }
-  | { t: "settings"; settings: Partial<RoomSettings> }
+  | { t: "settings"; settings: SettingsChange }
   | { t: "addBot" }
   | { t: "kick"; id: string }
   | { t: "start" }

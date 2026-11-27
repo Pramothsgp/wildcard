@@ -3,10 +3,10 @@ import { type Color, DARK_COLORS, LIGHT_COLORS } from "./cards.ts";
 import { GameError } from "./engine.ts";
 import { isModeId, sanitizeRules } from "./modes.ts";
 import { DEFAULT_PARTY, MAX_PLAYERS, type PartyAction, isGameKind, sanitizeParty } from "./party-meta.ts";
-import type { Action, RoomSettings } from "./protocol.ts";
+import type { Action, RoomSettings, SettingsChange } from "./protocol.ts";
 import { isThemeId } from "./themes.ts";
 
-export function cleanSettings(input: Partial<RoomSettings> | undefined, prev: RoomSettings): RoomSettings {
+export function cleanSettings(input: SettingsChange | undefined, prev: RoomSettings): RoomSettings {
   const i = input && typeof input === "object" ? input : {};
   const mode = isModeId(i.mode) ? i.mode : prev.mode;
   const name = typeof i.name === "string" && i.name.trim() ? i.name.trim().slice(0, 40) : prev.name;
