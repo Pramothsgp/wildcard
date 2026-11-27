@@ -83,19 +83,37 @@ function Village({ night }: { night: boolean }) {
 }
 
 /** Players around the middle of the scene, above the panel at the bottom. You sit at the bottom. */
+/**
+ * Seat spots spread evenly along the oval (by distance, not by angle), so the steep left and right
+ * sides don't bunch up on big tables. Spot 0 is at the front. Returns [x%, y%] pairs.
+ */
+function ovalSpots(n: number, rx: number, ry: number, cy: number) {
+  const steps = 720;
+  const aspect = 1.6; // a % of width is about this many % of height on a wide screen
+  const at = (k: number) => Math.PI / 2 + (k / steps) * Math.PI * 2;
+  const run = [0];
+  for (let k = 1; k <= steps; k++) run.push(run[k - 1] + Math.hypot((Math.cos(at(k)) - Math.cos(at(k - 1))) * rx * aspect, (Math.sin(at(k)) - Math.sin(at(k - 1))) * ry));
+  return Array.from({ length: n }, (_, i) => {
+    const k = run.findIndex((d) => d >= (run[steps] * i) / n);
+    return [50 + Math.cos(at(k)) * rx, cy + Math.sin(at(k)) * ry];
+  });
+}
+
 function Ring({ room, pickable, picked, onPick, badge, notes, tone, status }: { room: RoomView } & RingProps) {
   const players = room.players;
   const meIdx = Math.max(0, players.findIndex((x) => x.id === room.you));
   const n = players.length;
   const big = n > 10;
+  const huge = n > 18;
+  const spots = big ? ovalSpots(n, huge ? 44 : 40, huge ? 21 : 17, huge ? 30 : 27) : null;
   const turn = room.party?.turn;
   return (
     <ul className="absolute inset-0" aria-label="Players">
       {players.map((pl, i) => {
-        const a = Math.PI / 2 + ((i - meIdx + n) % n) * ((2 * Math.PI) / Math.max(1, n));
+        const seat = (i - meIdx + n) % n;
+        const a = Math.PI / 2 + seat * ((2 * Math.PI) / Math.max(1, n));
         // A flat ring in the upper part of the scene, so the panel at the bottom never hides anyone.
-        const x = 50 + Math.cos(a) * 40;
-        const y = 27 + Math.sin(a) * 17;
+        const [x, y] = spots?.[seat] ?? [50 + Math.cos(a) * 40, 27 + Math.sin(a) * 17];
         const can = pickable?.has(pl.id) ?? false;
         const t = tone?.(pl.id);
         const lines = notes?.(pl.id) ?? [];
@@ -106,7 +124,7 @@ function Ring({ room, pickable, picked, onPick, badge, notes, tone, status }: { 
         const face = (
           <>
             {react && <span key={react.at} className="token-bubble">{react.text}</span>}
-            <span className={`relative grid ${big ? "size-10" : "size-14"} place-items-center rounded-full bg-white/10 text-xl font-black ${ring} ${can ? "token-pickable" : ""}`}>
+            <span className={`relative grid ${huge ? "size-9" : big ? "size-10" : "size-14"} place-items-center rounded-full bg-white/10 text-xl font-black ${ring} ${can ? "token-pickable" : ""}`}>
               <span className="grid size-full place-items-center overflow-hidden rounded-full">
                 {pl.avatar ? <img src={avatarUrl(pl.avatar)} alt="" className="size-full" /> : pl.name.slice(0, 1)}
               </span>
@@ -122,7 +140,7 @@ function Ring({ room, pickable, picked, onPick, badge, notes, tone, status }: { 
             )}
           </>
         );
-        const box = `flex ${big ? "w-24" : "w-32"} flex-col items-center gap-1 rounded-2xl p-1 text-center`;
+        const box = `flex ${huge ? "w-20" : big ? "w-24" : "w-32"} flex-col items-center gap-1 rounded-2xl p-1 text-center`;
         return (
           <li
             key={pl.id}
