@@ -75,6 +75,10 @@
   transform: scale(1.08);
 }
 .seat-tag.is-away, .seat-tag.is-out { opacity: 0.5; }
+.seat-tag.is-compact { gap: 5px; padding: 3px 8px; }
+.seat-tag.is-compact .seat-avatar { width: 22px; height: 22px; }
+.seat-tag.is-compact b { font-size: 11px; }
+.seat-tag.is-compact span { font-size: 9.5px; }
 
 
 /* Party game worlds (party-stage.tsx). */
