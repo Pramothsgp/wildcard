@@ -1,7 +1,8 @@
 import { APIError, betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
-import { admin } from "better-auth/plugins";
+import { randomInt } from "node:crypto";
+import { admin, anonymous } from "better-auth/plugins";
 import { db } from "@repo/data";
 import * as schema from "@repo/data/schema";
 import { roleForNewUser } from "./roles.ts";
@@ -16,8 +17,11 @@ export { toNextJsHandler } from "better-auth/next-js";
  *   ADMIN_EMAILS        comma-separated; these get the admin role, but only when the
  *                       email is verified (Google sign-in). Password sign-up with one is refused.
  *   GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET   optional; enables "Sign in with Google"
+ *
+ * `guests` lets people play without an account. A guest is a normal user row (so leaderboards
+ * and history work) that lives as long as its session cookie.
  */
-function build(serviceName: string) {
+function build(serviceName: string, guests: boolean) {
   const baseURL = process.env.BETTER_AUTH_URL;
   const adminEmails = parseEmails(process.env.ADMIN_EMAILS);
   const googleId = process.env.GOOGLE_CLIENT_ID;
@@ -34,7 +38,12 @@ function build(serviceName: string) {
       googleId && googleSecret
         ? { google: { clientId: googleId, clientSecret: googleSecret } }
         : undefined,
-    plugins: [admin(), nextCookies()],
+    plugins: [
+      admin(),
+      // Guest rows are kept when a guest later signs in, so their past results stay valid.
+      ...(guests ? [anonymous({ emailDomainName: "guest.invalid", disableDeleteAnonymousUser: true, generateName: () => `Guest ${randomInt(1000, 10000)}` })] : []),
+      nextCookies(),
+    ],
     databaseHooks: {
       user: {
         create: {
@@ -60,14 +69,17 @@ export type Auth = ReturnType<typeof build>;
 const instances = new Map<string, Auth>();
 
 /** Lazy, so `next build` works without runtime env. */
-export function getAuth(serviceName: string): Auth {
+export function getAuth(serviceName: string, opts: { guests?: boolean } = {}): Auth {
   let auth = instances.get(serviceName);
   if (!auth) {
-    auth = build(serviceName);
+    auth = build(serviceName, opts.guests ?? false);
     instances.set(serviceName, auth);
   }
   return auth;
 }
+
+/** True for a guest (anonymous plugin). The plugin is optional per app, so its field isn't in the shared type. */
+export const isGuest = (user: object) => (user as { isAnonymous?: boolean | null }).isAnonymous === true;
 
 export function googleEnabled() {
   return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);

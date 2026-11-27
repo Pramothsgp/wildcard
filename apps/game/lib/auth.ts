@@ -1,3 +1,3 @@
 import { getAuth } from "@repo/auth";
 
-export const auth = () => getAuth("game");
+export const auth = () => getAuth("game", { guests: true });

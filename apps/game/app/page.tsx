@@ -1,3 +1,4 @@
+import { isGuest } from "@repo/auth";
 import { SignOutButton } from "@repo/auth/components";
 import { getSession } from "@repo/auth/next";
 import Link from "next/link";
@@ -20,10 +21,12 @@ export default async function Home() {
           <h1 className="bg-gradient-to-r from-amber-300 via-pink-400 to-sky-400 bg-clip-text text-4xl font-black text-transparent sm:text-5xl">GAME NIGHT</h1>
           <p className="text-white/60">Pick a game, open a table, send your friends the code.</p>
         </div>
-        {session ? <SignOutButton /> : (
-          <div className="flex gap-2">
+        {/* No sign-out for guests: they'd lose their guest player for good. */}
+        {session && !isGuest(session.user) ? <SignOutButton /> : (
+          <div className="flex flex-wrap items-center gap-2">
+            {session && <span className="text-sm text-white/60">Playing as {session.user.name} (guest)</span>}
             <Link href="/signup" className={`${link} bg-amber-400 text-black hover:bg-amber-300`}>Create account</Link>
-            <Link href="/signin" className={`${link} bg-white/10 hover:bg-white/20`}>Sign in</Link>
+            <Link href="/signin" className={`${link} bg-white/10 hover:bg-white/20`}>{session ? "Sign in" : "Sign in or play as guest"}</Link>
           </div>
         )}
       </header>

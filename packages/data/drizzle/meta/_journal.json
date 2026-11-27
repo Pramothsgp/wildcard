@@ -15,6 +15,13 @@
       "when": 1794820107865,
       "tag": "0001_lucky_green_goblin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795761452647,
+      "tag": "0002_cloudy_corsair",
+      "breakpoints": true
     }
   ]
 }

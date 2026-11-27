@@ -1,4 +1,4 @@
-// Tables used by better-auth (core + admin plugin). Column names must match what it expects.
+// Tables used by better-auth (core + admin and anonymous plugins). Column names must match what it expects.
 import { boolean, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 const timestamps = {
@@ -16,6 +16,8 @@ export const user = pgTable("user", {
   banned: boolean("banned").default(false),
   banReason: text("ban_reason"),
   banExpires: timestamp("ban_expires"),
+  /** Guest players (anonymous plugin): no email or password, kept by their session cookie. */
+  isAnonymous: boolean("is_anonymous").default(false),
   ...timestamps,
 });
 
