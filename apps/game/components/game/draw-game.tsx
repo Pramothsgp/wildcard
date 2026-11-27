@@ -8,6 +8,7 @@ import { Clock, RoundEnd, TextMove, act, glass, nameOf } from "./party";
 import { Sketch } from "./sketch";
 
 const PICK_MS = 15_000;
+const who = (room: RoomView, ids: string[]) => ids.map((id) => nameOf(room, id)).join(" & ");
 const LEVEL_LOOK = { easy: "bg-emerald-900/30 text-emerald-900", medium: "bg-sky-900/30 text-sky-900", hard: "bg-red-900/30 text-red-900" };
 
 export function DrawGame({ room }: { room: RoomView }) {
@@ -39,14 +40,16 @@ function WordBar({ room, p }: { room: RoomView; p: DrawView }) {
   const label =
     p.phase === "pick" ? (p.choices ? "Pick a word to draw" : `${nameOf(room, p.drawers[0])} ${p.drawers[0] === room.you ? "are" : "is"} picking a word`)
     : over ? "The word was"
-    : p.word && relay && p.guesser !== room.you ? `The word · don't tell ${nameOf(room, p.guesser)}!`
+    : p.phase === "steal" ? (p.canGuess ? "Steal it!" : "The other teams can steal it")
+    : p.word && relay && !p.guessers.includes(room.you) ? `The word · don't tell ${who(room, p.guessers)}!`
     : p.word && p.drawer === room.you ? "Draw this"
     : p.word ? "You got it"
-    : "Guess the word";
+    : p.canGuess ? "Guess the word"
+    : "The word is hidden from you";
   const shown = p.word ?? p.hint;
   // Classic splits the drawing time into steps (a hint letter each); show the whole time, not the step.
   const step = room.partyRules.seconds * 1000;
-  const [ends, total] = p.phase === "pick" ? [p.ends, PICK_MS] : relay ? [p.ends, step] : [p.ends && p.ends + (p.slots - p.slot - 1) * step, p.slots * step];
+  const [ends, total] = p.phase === "pick" ? [p.ends, PICK_MS] : p.phase === "steal" ? [p.ends, (room.partyRules.stealSeconds ?? 20) * 1000] : relay ? [p.ends, step] : [p.ends && p.ends + (p.slots - p.slot - 1) * step, p.slots * step];
   return (
     <div className={`${glass} flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2`}>
       <div className="min-w-0">
@@ -61,6 +64,7 @@ function WordBar({ room, p }: { room: RoomView; p: DrawView }) {
       <div className="flex items-center gap-3 text-xs text-white/65">
         <span>{DRAW_STYLES[p.style]} · Round {p.round} of {p.rounds}</span>
         {p.phase === "draw" && relay && <span>Drawer {(p.slot % p.drawers.length) + 1} of {p.drawers.length} · turn {p.slot + 1}/{p.slots}</span>}
+        {p.phase === "steal" && <span className="font-bold text-amber-200">Steal round</span>}
         {!over && <Clock ends={ends} total={total} />}
       </div>
     </div>
@@ -88,9 +92,11 @@ function Moves({ room, p }: { room: RoomView; p: DrawView }) {
           </Btn>
         ))}
       </div>
-    ) : <p className="text-center text-sm text-white/70">Get ready{p.guesser === room.you ? ": you're guessing this one" : ""}...</p>;
+    ) : <p className="text-center text-sm text-white/70">Get ready{p.guessers.includes(room.you) ? ": you're guessing this one" : ""}...</p>;
   } else if (p.canGuess) {
-    body = <TextMove placeholder="Type your guess" label="Guess" hint={relay ? "Your teammates are drawing it for you. Guess as often as you like." : "The faster you get it, the more you score."} onSend={(text) => act({ type: "guess", text })} />;
+    const hint = p.phase === "steal" ? "They missed it. First right guess steals the points for your team."
+      : relay ? "Your teammates are drawing it for you. Guess as often as you like." : "The faster you get it, the more you score.";
+    body = <TextMove placeholder="Type your guess" label="Guess" hint={hint} onSend={(text) => act({ type: "guess", text })} />;
   } else if (p.canDraw) {
     body = (
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -102,9 +108,14 @@ function Moves({ room, p }: { room: RoomView; p: DrawView }) {
       </div>
     );
   } else {
-    const text = relay
-      ? p.drawers.includes(room.you) ? `Your teammate ${nameOf(room, p.drawer)} is drawing. Your turn comes round soon.` : `You know the word. Watch ${nameOf(room, p.guesser)} try to get it.`
-      : p.solved.includes(room.you) ? "You got it! Watch the others try." : `${nameOf(room, p.drawer)} is drawing.`;
+    const mine = p.yourTeam === p.active;
+    const text = !relay ? (p.solved.includes(room.you) ? "You got it! Watch the others try." : `${nameOf(room, p.drawer)} is drawing.`)
+      : p.phase === "steal" ? "Time's up. The other teams are trying to steal it."
+      : p.drawers.includes(room.you) ? `Your teammate ${nameOf(room, p.drawer)} is drawing. Your turn comes round soon.`
+      : mine ? "You're sitting this turn out. Cheer your team on!"
+      : p.word ? `You know the word. Watch ${who(room, p.guessers)} try to get it.`
+      : room.partyRules.steal ? `Watch closely: if ${who(room, p.guessers)} can't get it, your team can steal it.`
+      : `Team ${TEAMS[p.active].name} is guessing.`;
     body = <p className="text-center text-sm text-white/70">{text}</p>;
   }
   return <div className={`${glass} p-3 ${p.canGuess || p.choices ? "panel-hot" : ""}`}>{body}</div>;
@@ -116,7 +127,7 @@ function Players({ room, p }: { room: RoomView; p: DrawView }) {
     p.phase === "draw" && id === p.drawer ? "drawing"
     : p.phase === "pick" && id === p.drawers[0] ? "picking"
     : p.solved.includes(id) ? "got it"
-    : id === p.guesser ? "guessing"
+    : p.guessers.includes(id) ? "guessing"
     : null;
   const row = (id: string) => (
     <li key={id} className={`flex items-center justify-between gap-2 rounded-lg px-2 py-1 text-sm ${id === room.you ? "bg-amber-300/15" : "bg-white/5"}`}>

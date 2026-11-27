@@ -6,27 +6,32 @@ import { type ReactNode, useEffect, useState } from "react";
 import { DRAW_STYLES, PACKS, PARTY_RULES, type PartyAction, type PartyKind, type PartyOpts } from "@/game/party-meta";
 import type { RoomView } from "@/game/protocol";
 import { send } from "@/lib/socket";
+import { RelayOptions } from "./draw-options";
 import { Btn } from "./hud";
 
 export const glass = "rounded-2xl border border-white/15 bg-gradient-to-b from-[#1a1424]/92 to-[#09070d]/92 shadow-[0_10px_40px_rgba(0,0,0,0.55)] backdrop-blur-md";
 export const act = (action: PartyAction) => send({ t: "party", action });
 export const nameOf = (room: RoomView, id: string | null | undefined) => (id === room.you ? "You" : room.players.find((p) => p.id === id)?.name ?? "?");
-const range = (a: number, b: number, step = 1) => Array.from({ length: (b - a) / step + 1 }, (_, i) => a + i * step).map((n) => [n, String(n)] as [number, string]);
+export const range = (a: number, b: number, step = 1) => Array.from({ length: (b - a) / step + 1 }, (_, i) => a + i * step).map((n) => [n, String(n)] as [number, string]);
+
+/** One lobby option: a label, a hint and a dropdown. */
+export function OptionSelect({ label, hint, value, options, disabled, onPick }: {
+  label: string; hint: string; value: string | number; options: [string | number, string][]; disabled?: boolean; onPick: (v: string) => void;
+}) {
+  return (
+    <label className="flex items-center justify-between gap-2 rounded-xl bg-white/5 p-3 text-sm font-semibold">
+      <span>{label}<span className="block text-xs font-normal text-white/50">{hint}</span></span>
+      <select disabled={disabled} value={value} onChange={(e) => onPick(e.target.value)} className="rounded-lg bg-white/10 px-2 py-1 outline-none focus:ring-2 focus:ring-amber-300">
+        {options.map(([v, l]) => <option key={v} value={v} className="bg-[#1d150e]">{l}</option>)}
+      </select>
+    </label>
+  );
+}
 
 export function PartyOptions({ room, host, onChange }: { room: RoomView; host: boolean; onChange: (o: Partial<PartyOpts>) => void }) {
   const o = room.partyRules;
   const select = (label: string, value: string | number, options: [string | number, string][], key: keyof PartyOpts, hint: string) => (
-    <label className="flex items-center justify-between gap-2 rounded-xl bg-white/5 p-3 text-sm font-semibold">
-      <span>{label}<span className="block text-xs font-normal text-white/50">{hint}</span></span>
-      <select
-        disabled={!host}
-        value={value}
-        onChange={(e) => onChange({ [key]: typeof value === "number" ? Number(e.target.value) : e.target.value })}
-        className="rounded-lg bg-white/10 px-2 py-1 outline-none focus:ring-2 focus:ring-amber-300"
-      >
-        {options.map(([v, l]) => <option key={v} value={v} className="bg-[#1d150e]">{l}</option>)}
-      </select>
-    </label>
+    <OptionSelect label={label} hint={hint} value={value} options={options} disabled={!host} onPick={(v) => onChange({ [key]: typeof value === "number" ? Number(v) : v })} />
   );
   return (
     <div className="grid gap-2 sm:grid-cols-2">
@@ -41,8 +46,7 @@ export function PartyOptions({ room, host, onChange }: { room: RoomView; host: b
         <>
           {select("How to play", o.style ?? "classic", Object.entries(DRAW_STYLES), "style", "Classic: one draws, all guess. Relay: teammates draw for one guesser.")}
           {select("Word pack", o.pack, Object.entries(PACKS), "pack", "Mixed adds over 300 everyday things to draw.")}
-          {o.style === "relay" && select("Teams", o.teams ?? 2, range(2, 4), "teams", "Needs 2 players per team, or there are fewer teams.")}
-          {o.style === "relay" && select("Turns per drawer", o.laps, range(1, 3), "laps", "How many times the pen goes round the team per word.")}
+          {o.style === "relay" && <RelayOptions room={room} host={host} onChange={onChange} />}
         </>
       )}
       {select("Rounds", o.rounds, range(1, 10), "rounds", room.kind === "draw" ? "Each player (classic) or team (relay) gets a word per round." : "Rounds in the match.")}
