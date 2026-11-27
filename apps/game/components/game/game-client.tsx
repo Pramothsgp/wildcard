@@ -122,7 +122,7 @@ export function GameClient({ code, kind }: { code: string; kind: GameKind }) {
       {g && g.phase !== "playing" && <RoundModal room={room} />}
       {room.status === "abandoned" && (
         <Modal title="Table closed">
-          <p className="text-white/70">Everyone left, so this game ended. It is saved in your history.</p>
+          <p className="text-white/70">This game has ended. It is saved in your history.</p>
           <Btn onClick={() => router.push(`/${kind}`)}>Back to lobby</Btn>
         </Modal>
       )}

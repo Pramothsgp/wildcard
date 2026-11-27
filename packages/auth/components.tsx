@@ -155,6 +155,45 @@ export function AuthForm({
   );
 }
 
+/** Play without an account. The guest is kept by the session cookie for later games. */
+export function GuestForm() {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = String(new FormData(event.currentTarget).get("guestName")).trim();
+    setPending(true);
+    setError(null);
+    const result = await authClient.signIn.anonymous();
+    const named = !result.error && name ? await authClient.updateUser({ name }) : null;
+    const failed = result.error ?? named?.error;
+    if (failed) {
+      setPending(false);
+      setError(failed.message ?? "Something went wrong. Try again.");
+      return;
+    }
+    router.push("/");
+    router.refresh();
+  }
+
+  return (
+    <form onSubmit={onSubmit} className="w-full max-w-sm space-y-3 rounded-xl border border-border p-4">
+      <div className="space-y-1">
+        <Label htmlFor="guestName">Just want to play?</Label>
+        <p className="text-xs text-muted-foreground">No account needed. This browser remembers you for next time.</p>
+      </div>
+      <Input id="guestName" name="guestName" minLength={2} maxLength={40} autoComplete="nickname" placeholder="Your name (optional)" className="h-11" />
+      {error && <p role="alert" className="text-sm text-destructive dark:text-red-300">{error}</p>}
+      <Button type="submit" variant="outline" className="h-11 w-full text-[15px] font-semibold" disabled={pending}>
+        {pending && <Spinner />}
+        Play as guest
+      </Button>
+    </form>
+  );
+}
+
 export function SignOutButton() {
   const router = useRouter();
   return (

@@ -10,14 +10,13 @@ import { Panel, RoundEnd, TextMove, act, nameOf } from "./party";
 import { PartyStage } from "./party-stage";
 
 const STEPS = ["Clues", "Vote", "Reveal"];
+const doVote = (id: string) => act({ type: "vote", target: id });
 
 export function ImposterGame({ room }: { room: RoomView }) {
   const p = room.party?.kind === "imposter" ? room.party : null;
-  const [vote, setVote] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
   const round = p?.round;
   useEffect(() => {
-    setVote(null);
     setHidden(false);
   }, [round]);
   if (!p) return <PartyStage room={room} ring={{}} />;
@@ -25,11 +24,8 @@ export function ImposterGame({ room }: { room: RoomView }) {
   const over = p.phase === "reveal" || p.phase === "over";
   const others = room.players.filter((x) => x.id !== room.you).map((x) => x.id);
   const cluesOf = (id: string) => p.clues.filter((c) => c.id === id).map((c) => c.text);
-  const votesFor = (id: string) => Object.values(p.votes ?? {}).filter((t) => t === id).length;
-  const doVote = (id: string) => {
-    setVote(id);
-    act({ type: "vote", target: id });
-  };
+  const votesFor = (id: string) => Object.values(p.votes ?? {}).flat().filter((t) => t === id).length;
+  const votedIn = p.mine.length >= p.picks;
 
   return (
     <>
@@ -40,10 +36,10 @@ export function ImposterGame({ room }: { room: RoomView }) {
           banner: { clues: p.lap === 1 ? `Round ${p.round}` : `Lap ${p.lap}`, vote: "Who's the faker?", guess: "Caught!", reveal: banner(p), over: banner(p) }[p.phase],
           notes: cluesOf,
           pickable: p.phase === "vote" ? new Set(others) : undefined,
-          picked: p.phase === "vote" ? vote : null,
+          picked: p.phase === "vote" ? p.mine : null,
           onPick: doVote,
           badge: (id) => (over && votesFor(id) ? votesFor(id) : null),
-          tone: (id) => (over && p.imposters?.includes(id)) || (p.phase === "guess" && p.accused === id) ? "bad" : over && p.winners.includes(id) ? "good" : null,
+          tone: (id) => (over && p.imposters?.includes(id)) || (p.phase === "guess" && p.accused.includes(id)) ? "bad" : over && p.winners.includes(id) ? "good" : null,
           status: (id) =>
             p.phase === "clues" && p.turn === id ? (id === room.you ? "your turn" : "thinking...")
             : p.phase === "vote" && p.done.includes(id) ? "voted"
@@ -52,29 +48,29 @@ export function ImposterGame({ room }: { room: RoomView }) {
         }}
       />
       <Panel room={room} steps={STEPS} at={over ? 2 : p.phase === "clues" ? 0 : 1} timer={over ? null : room.partyRules.seconds * 1000 * (p.phase === "vote" ? 3 : 1)}
-        hot={(p.phase === "clues" || p.phase === "guess") && p.turn === room.you || (p.phase === "vote" && !vote)}
-        title={title(room, p, vote)}>
+        hot={(p.phase === "clues" || p.phase === "guess") && p.turn === room.you || (p.phase === "vote" && !votedIn)}
+        title={title(room, p)}>
         {!over && <Secret p={p} hidden={hidden} onToggle={() => setHidden(!hidden)} />}
         {p.phase === "clues" && <Clues room={room} p={p} />}
         {p.phase === "vote" && (
           <>
-            <p className="text-sm text-white/70">{p.youAreImposter ? "Vote too, or you'll stand out. " : ""}Tap a suspect on the table, or here (or press their number). Compare their clues.</p>
+            <p className="text-sm text-white/70">{p.youAreImposter ? "Vote too, or you'll stand out. " : ""}{p.picks > 1 ? `There are ${p.picks} imposters: pick ${p.picks} suspects. ` : ""}Tap a suspect on the table, or here (or press their number). Compare their clues.</p>
             <div className="grid gap-2 sm:grid-cols-2">
               {others.map((id, i) => (
-                <button key={id} type="button" aria-pressed={vote === id} aria-keyshortcuts={i < 9 ? String(i + 1) : undefined} onClick={() => doVote(id)}
-                  className={`rounded-xl p-2 text-left text-sm transition ${vote === id ? "bg-gradient-to-b from-[#f3d27a] to-[#c9973a] text-black" : "bg-white/5 hover:bg-white/10"}`}>
+                <button key={id} type="button" aria-pressed={p.mine.includes(id)} aria-keyshortcuts={i < 9 ? String(i + 1) : undefined} onClick={() => doVote(id)}
+                  className={`rounded-xl p-2 text-left text-sm transition ${p.mine.includes(id) ? "bg-gradient-to-b from-[#f3d27a] to-[#c9973a] text-black" : "bg-white/5 hover:bg-white/10"}`}>
                   {i < 9 && <><Hotkey k={String(i + 1)} fn={() => doVote(id)} /><kbd className="mr-1.5 font-mono text-xs opacity-60 pointer-coarse:hidden">{i + 1}</kbd></>}
                   <b>{nameOf(room, id)}</b>{p.done.includes(id) && <span className="ml-1 text-xs opacity-60">· voted</span>}
                   <span className="block text-xs opacity-80">{cluesOf(id).join(" · ") || "no clues"}</span>
                 </button>
               ))}
             </div>
-            <p className="text-xs text-white/55">{vote ? `You voted for ${nameOf(room, vote)}. Tap someone else to change it. ` : ""}{p.done.length} of {room.players.length} have voted.</p>
+            <p className="text-xs text-white/55">{p.mine.length ? `You picked ${p.mine.map((id) => nameOf(room, id)).join(" and ")}${p.mine.length < p.picks ? ` (${p.picks - p.mine.length} more to go)` : ""}. ${p.picks > 1 ? "Tap a pick again to drop it. " : "Tap someone else to change it. "}` : ""}{p.done.length} of {room.players.length} have voted.</p>
           </>
         )}
         {p.phase === "guess" && (p.turn === room.you
           ? <TextMove placeholder="Guess the secret word" label="Guess" hint={`The category is ${p.category}. Use the clues!`} onSend={(text) => act({ type: "guess", text })} />
-          : <p className="text-sm text-white/75">If they guess the word, the imposter still wins. Fingers crossed...</p>)}
+          : <p className="text-sm text-white/75">If they guess the word, the {p.accused.length > 1 ? "imposters still win" : "imposter still wins"}. Fingers crossed...</p>)}
         {over && (
           <RoundEnd room={room} headline={headline(room, p)}>
             <div className="grid grid-cols-2 gap-2 text-center">
@@ -126,22 +122,25 @@ function Clues({ room, p }: { room: RoomView; p: ImposterView }) {
   );
 }
 
-function title(room: RoomView, p: ImposterView, vote: string | null) {
+function title(room: RoomView, p: ImposterView) {
   if (p.phase === "clues") return p.turn === room.you ? "Your turn: give a clue" : `${nameOf(room, p.turn)} is thinking of a clue...`;
-  if (p.phase === "vote") return vote ? "Vote in. Waiting for the others..." : "Who's the imposter?";
-  if (p.phase === "guess") return p.turn === room.you ? "They caught you! One guess to steal the win" : `${nameOf(room, p.accused)} was the imposter!`;
+  if (p.phase === "vote") return p.mine.length >= p.picks ? "Vote in. Waiting for the others..." : p.picks > 1 ? `Who are the ${p.picks} imposters?` : "Who's the imposter?";
+  if (p.phase === "guess") return p.turn === room.you ? "They caught you! One guess to steal the win" : `${p.accused.map((id) => nameOf(room, id)).join(" & ")} ${p.accused.length > 1 ? "were the imposters" : "was the imposter"}!`;
   return p.phase === "over" ? "Case closed" : `Round ${p.round} result`;
 }
 
+/** True when every imposter was accused. */
+const allCaught = (p: ImposterView) => !!p.imposters?.length && p.imposters.every((id) => p.accused.includes(id));
+
 function banner(p: ImposterView) {
-  const caught = p.accused !== null && (p.imposters ?? []).includes(p.accused);
+  const caught = allCaught(p);
   return caught && !p.winners.some((id) => p.imposters?.includes(id)) ? "Caught!" : "Escaped!";
 }
 
 function headline(room: RoomView, p: ImposterView) {
   const imp = (p.imposters ?? []).includes(room.you);
   const won = p.winners.includes(room.you);
-  const caught = p.accused !== null && (p.imposters ?? []).includes(p.accused);
+  const caught = allCaught(p);
   if (imp) return won ? (caught ? "Caught, but you cracked the word!" : "You fooled them all!") : "They saw right through you!";
   if (won) return "You caught the imposter!";
   return caught ? "So close! They guessed the word." : "The imposter slipped away. Next time!";

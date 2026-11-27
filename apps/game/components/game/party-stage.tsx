@@ -13,7 +13,7 @@ export type Sky = "night" | "day" | "dawn";
 export type RingProps = {
   /** Players that can be tapped right now. */
   pickable?: Set<string>;
-  picked?: string | null;
+  picked?: string | string[] | null;
   onPick?: (id: string) => void;
   /** Small label on a token, e.g. a vote count. */
   badge?: (id: string) => ReactNode;
@@ -102,7 +102,7 @@ function Ring({ room, pickable, picked, onPick, badge, notes, tone, status }: { 
         const mark = badge?.(pl.id);
         const react = room.reactions.findLast((r) => r.id === pl.id);
         const label = pl.id === room.you ? "You" : pl.name;
-        const ring = picked === pl.id ? "ring-4 ring-amber-300" : t === "bad" ? "ring-2 ring-red-400" : t === "good" ? "ring-2 ring-emerald-300" : turn === pl.id ? "ring-2 ring-amber-300" : "ring-2 ring-white/25";
+        const ring = [picked].flat().includes(pl.id) ? "ring-4 ring-amber-300" : t === "bad" ? "ring-2 ring-red-400" : t === "good" ? "ring-2 ring-emerald-300" : turn === pl.id ? "ring-2 ring-amber-300" : "ring-2 ring-white/25";
         const face = (
           <>
             {react && <span key={react.at} className="token-bubble">{react.text}</span>}
@@ -130,7 +130,7 @@ function Ring({ room, pickable, picked, onPick, badge, notes, tone, status }: { 
             style={{ left: `${x}%`, top: `${y}%` }}
           >
             {can ? (
-              <button type="button" aria-pressed={picked === pl.id} aria-label={`Pick ${label}`} onClick={() => onPick?.(pl.id)} className={`${box} transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-amber-300`}>
+              <button type="button" aria-pressed={[picked].flat().includes(pl.id)} aria-label={`Pick ${label}`} onClick={() => onPick?.(pl.id)} className={`${box} transition hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-amber-300`}>
                 {face}
               </button>
             ) : (

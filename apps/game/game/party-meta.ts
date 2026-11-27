@@ -110,9 +110,13 @@ export type ImposterView = Common & {
   lap: number;
   laps: number;
   clues: { id: string; text: string }[];
-  /** voter id → target id. Shown once voting has closed. */
-  votes: Record<string, string | null> | null;
-  accused: string | null;
+  /** voter id → the suspects they picked. Shown once voting has closed. */
+  votes: Record<string, string[]> | null;
+  /** How many suspects each player picks: one per imposter. */
+  picks: number;
+  /** Your own picks this round. */
+  mine: string[];
+  accused: string[];
   guess: string | null;
   /** Revealed at the end of the round. */
   imposters: string[] | null;
@@ -143,9 +147,9 @@ export const PARTY_RULES: Record<PartyKind, { title: string; text: string }[]> =
   imposter: [
     { title: "Goal", text: "Everyone sees the same secret word except the imposter, who only sees the category. Big tables can have 2 imposters (6+ players) or 3 (12+). The group wants to find the imposter; the imposter wants to blend in." },
     { title: "Clues", text: "Players take turns giving one short clue about the word. Too obvious and the imposter learns the word; too vague and you look like the imposter. You can't say the word itself." },
-    { title: "Vote", text: "After the clue laps everyone votes for who they think the imposter is. The player with the most votes is accused. A tie means nobody is accused and the imposter escapes." },
-    { title: "Last chance", text: "If the imposter is accused they get one guess at the word. Guess right and they still win." },
-    { title: "Scoring", text: "Imposter escapes: +30. Imposter caught but guesses the word: +20. Imposter caught: everyone else +20, and +10 more if you voted for the imposter. The match winner gets +100 on the leaderboard." },
+    { title: "Vote", text: "After the clue laps everyone votes for who they think the imposter is, picking one suspect per imposter. The most-voted players are accused, one per imposter. A tie at the cut-off accuses none of the tied. Every imposter has to be accused for the crew to win." },
+    { title: "Last chance", text: "If every imposter is accused they get one guess at the word between them. Guess right and they still win." },
+    { title: "Scoring", text: "Imposter escapes: +30. Imposter caught but their side wins: +20. All imposters caught: everyone else +20, and +10 more for each imposter you voted for. The match winner gets +100 on the leaderboard." },
   ],
   village: [
     { title: "Goal", text: "Each player secretly gets a role. The village wins when every wolf is out. The wolves win when they equal or outnumber everyone else." },

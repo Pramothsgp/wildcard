@@ -1,7 +1,7 @@
 // Imposter: everyone but the imposter knows the word. Clue laps, a vote, and a last guess.
 import { randomInt } from "node:crypto";
 import { type GameEvent, shuffle } from "./engine.ts";
-import { type Base, type BotMove, closeRound, fail, leading, newBase, norm, pickOne, seatOf, tally } from "./party-core.ts";
+import { type Base, type BotMove, closeRound, fail, leading, newBase, norm, pickOne, seatOf } from "./party-core.ts";
 import { type ImposterView, PACKS, type PackId, type PartyAction, type PartyOpts } from "./party-meta.ts";
 import { type Entry, WORDS } from "./words.ts";
 
@@ -17,8 +17,10 @@ export type ImposterState = Base & {
   turn: number;
   lap: number;
   clues: { seat: number; text: string }[];
-  votes: Record<number, number>;
-  accused: number | null;
+  /** Each voter's suspects; everyone gets one pick per imposter. */
+  votes: Record<number, number[]>;
+  /** Everyone the vote pointed at (up to one per imposter). */
+  accused: number[];
   guess: string | null;
   /** When the current phase began, so bots don't vote before people have read the clues. */
   since: number;
@@ -26,11 +28,20 @@ export type ImposterState = Base & {
 
 const entryOf = (s: ImposterState): Entry => WORDS[s.pack][s.entry];
 const voteMs = (s: ImposterState) => s.opts.seconds * 3000;
+/** Picks each player gets: one per imposter. */
+const need = (s: ImposterState) => s.imposters.length;
+const allVotes = (s: ImposterState) => Object.values(s.votes).flat();
+const names = (seats: number[], s: ImposterState) => seats.map((i) => s.players[i].name).join(" and ");
+function counts(s: ImposterState) {
+  const c = new Map<number, number>();
+  for (const t of allVotes(s)) c.set(t, (c.get(t) ?? 0) + 1);
+  return c;
+}
 
 export function create(players: { id: string; name: string; bot: boolean }[], opts: PartyOpts): ImposterState {
   return {
     ...newBase(players, opts), kind: "imposter", phase: "reveal", pack: "food", entry: 0, used: [], imposters: [],
-    start: 0, turn: 0, lap: 1, clues: [], votes: {}, accused: null, guess: null, since: 0,
+    start: 0, turn: 0, lap: 1, clues: [], votes: {}, accused: [], guess: null, since: 0,
   };
 }
 
@@ -47,7 +58,7 @@ export function start(s: ImposterState, now: number): GameEvent[] {
   const count = Math.min(s.opts.imposters, n >= 12 ? 3 : n >= 6 ? 2 : 1);
   s.imposters = shuffle(s.players.map((_, i) => i)).slice(0, count);
   s.start = s.turn = (s.round - 1) % n;
-  Object.assign(s, { lap: 1, clues: [], votes: {}, accused: null, guess: null, gained: [], winners: [], outcome: null, phase: "clues", since: now });
+  Object.assign(s, { lap: 1, clues: [], votes: {}, accused: [], guess: null, gained: [], winners: [], outcome: null, phase: "clues", since: now });
   s.ends = now + s.opts.seconds * 1000;
   return [{ kind: "round", text: `Round ${s.round}: the category is ${PACKS[s.pack]}. ${s.players[s.turn].name} gives the first clue.` }];
 }
@@ -73,10 +84,14 @@ export function act(s: ImposterState, seat: number, a: PartyAction, now: number)
     if (s.phase !== "vote") fail("Voting isn't open");
     const t = seatOf(s, a.target);
     if (t < 0 || t === seat) fail("Pick another player");
-    s.votes[seat] = t;
-    if (Object.keys(s.votes).length === s.players.length) resolveVote(s, now, ev);
+    // Tapping a suspect toggles them; past the limit the oldest pick drops off.
+    const mine = (s.votes[seat] ??= []);
+    if (mine.includes(t)) {
+      if (need(s) > 1) mine.splice(mine.indexOf(t), 1);
+    } else if (mine.push(t) > need(s)) mine.shift();
+    if (s.players.every((_, i) => (s.votes[i]?.length ?? 0) >= need(s))) resolveVote(s, now, ev);
   } else if (a.type === "guess") {
-    if (s.phase !== "guess" || s.accused !== seat) fail("Only the accused imposter can guess");
+    if (s.phase !== "guess" || !s.imposters.includes(seat)) fail("Only a caught imposter can guess");
     s.guess = a.text.trim().slice(0, 40);
     const right = norm(s.guess) === norm(entryOf(s).word);
     ev.push({ kind: "guess", seat, text: `${me.name} guesses "${s.guess}"... ${right ? "correct!" : "wrong."}` });
@@ -97,29 +112,35 @@ function nextClue(s: ImposterState, now: number, ev: GameEvent[]) {
 }
 
 function resolveVote(s: ImposterState, now: number, ev: GameEvent[]) {
-  const { top, counts } = tally(s.votes);
-  const summary = [...counts].toSorted((a, b) => b[1] - a[1]).map(([t, c]) => `${s.players[t].name} ${c}`).join(", ");
+  const sorted = [...counts(s)].toSorted((a, b) => b[1] - a[1]);
+  const summary = sorted.map(([t, c]) => `${s.players[t].name} ${c}`).join(", ");
   ev.push({ kind: "votes", text: `Votes: ${summary || "none"}` });
-  s.accused = top;
-  if (top !== null && s.imposters.includes(top)) {
+  // The top vote-getters are accused, one per imposter. A tie across the cut-off accuses none of the tied.
+  const k = need(s);
+  s.accused = sorted.slice(0, k).filter(([, c]) => c > (sorted[k]?.[1] ?? 0)).map(([t]) => t);
+  const caught = s.accused.filter((i) => s.imposters.includes(i));
+  const wrong = s.accused.filter((i) => !s.imposters.includes(i));
+  if (caught.length === k) {
     s.phase = "guess";
     s.ends = now + Math.max(20, s.opts.seconds) * 1000;
-    ev.push({ kind: "accuse", seat: top, text: `${s.players[top].name} was the imposter! One guess at the word to steal the win...` });
+    ev.push({ kind: "accuse", seat: caught[0], text: `${names(caught, s)} ${k > 1 ? "were the imposters" : "was the imposter"}! One guess at the word to steal the win...` });
     return;
   }
-  ev.push({ kind: "accuse", text: top === null ? "No clear vote. The imposter slips away." : `${s.players[top].name} was not the imposter.` });
+  const text = !s.accused.length ? "No clear vote. The imposter slips away."
+    : [caught.length ? `${names(caught, s)} got caught, but not every imposter did.` : "", wrong.length ? `${names(wrong, s)} ${wrong.length > 1 ? "were" : "was"} not the imposter.` : ""].filter(Boolean).join(" ");
+  ev.push({ kind: "accuse", text });
   finish(s, true, now, ev);
 }
 
 function finish(s: ImposterState, imposterWins: boolean, now: number, ev: GameEvent[]) {
-  const caught = s.accused !== null && s.imposters.includes(s.accused);
+  const caught = s.imposters.filter((i) => s.accused.includes(i)).length;
   const gained = s.players.map((_, i) => {
     const imp = s.imposters.includes(i);
-    if (imposterWins) return imp ? (caught ? 20 : 30) : 0;
-    return imp ? 0 : 20 + (s.imposters.includes(s.votes[i] ?? -1) ? 10 : 0);
+    if (imposterWins) return imp ? (s.accused.includes(i) ? 20 : 30) : 0;
+    return imp ? 0 : 20 + 10 * (s.votes[i] ?? []).filter((t) => s.imposters.includes(t)).length;
   });
-  const names = s.imposters.map((i) => s.players[i].name).join(" and ");
-  const text = `The word was ${entryOf(s).word}. ${names} ${imposterWins ? (caught ? "got caught but guessed it" : "fooled everyone") : "got caught"}. ${imposterWins ? "Imposter" : "Crew"} wins round ${s.round}.`;
+  const how = !imposterWins ? "got caught" : caught === s.imposters.length ? "got caught but guessed it" : caught ? "weren't all caught" : "fooled everyone";
+  const text = `The word was ${entryOf(s).word}. ${names(s.imposters, s)} ${how}. ${imposterWins ? "Imposter" : "Crew"} wins round ${s.round}.`;
   closeRound(s, gained, text, now, ev);
 }
 
@@ -131,7 +152,7 @@ export function timeout(s: ImposterState, now: number): GameEvent[] {
     nextClue(s, now, ev);
   } else if (s.phase === "vote") resolveVote(s, now, ev);
   else if (s.phase === "guess") {
-    ev.push({ kind: "guess", seat: s.accused!, text: `${s.players[s.accused!].name} ran out of time to guess` });
+    ev.push({ kind: "guess", seat: s.imposters[0], text: `${names(s.imposters, s)} ran out of time to guess` });
     finish(s, false, now, ev);
   } else if (s.phase === "reveal") return start(s, now);
   return ev;
@@ -156,24 +177,26 @@ export function botStep(s: ImposterState, now: number): BotMove | null {
     return { seat: s.turn, action: { type: "clue", text }, at: now };
   }
   if (s.phase === "vote") {
-    const seat = s.players.findIndex((p, i) => p.bot && s.votes[i] === undefined);
+    const seat = s.players.findIndex((p, i) => p.bot && (s.votes[i]?.length ?? 0) < need(s));
     if (seat < 0) return null;
-    const others = s.players.map((_, i) => i).filter((i) => i !== seat);
+    const mine = s.votes[seat] ?? [];
+    const others = s.players.map((_, i) => i).filter((i) => i !== seat && !mine.includes(i));
     let target: number;
     if (s.imposters.includes(seat)) {
-      target = leading(s.votes, (t) => t === seat) ?? pickOne(others)!;
+      target = leading({ ...allVotes(s) }, (t) => t === seat || mine.includes(t)) ?? pickOne(others)!;
     } else {
       // Clues that belong to another word in the pack look suspicious.
       const real = new Set(entryOf(s).clues.map(norm));
       const fake = new Set(WORDS[s.pack].flatMap((e) => e.clues).map(norm).filter((c) => !real.has(c)));
-      const { counts } = tally(s.votes);
-      const score = (i: number) => s.clues.filter((c) => c.seat === i).reduce((t, c) => t + (fake.has(norm(c.text)) ? 2 : c.text === "(no clue)" ? 1 : 0), 0) + (counts.get(i) ?? 0) + randomInt(100) / 100;
+      const votes = counts(s);
+      const score = (i: number) => s.clues.filter((c) => c.seat === i).reduce((t, c) => t + (fake.has(norm(c.text)) ? 2 : c.text === "(no clue)" ? 1 : 0), 0) + (votes.get(i) ?? 0) + randomInt(100) / 100;
       target = others.toSorted((a, b) => score(b) - score(a))[0];
     }
-    return { seat, action: { type: "vote", target: s.players[target].id }, at: s.since + Math.min(8000, voteMs(s) / 4) + seat * 700 };
+    return { seat, action: { type: "vote", target: s.players[target].id }, at: s.since + Math.min(8000, voteMs(s) / 4) + seat * 700 + mine.length * 500 };
   }
-  if (s.phase === "guess" && s.accused !== null && bot(s.accused)) {
-    return { seat: s.accused, action: { type: "guess", text: bestGuess(s).word }, at: now + 2500 };
+  // Bots guess only when no person is among the imposters; a person gets the say.
+  if (s.phase === "guess" && s.imposters.every(bot)) {
+    return { seat: s.imposters[0], action: { type: "guess", text: bestGuess(s).word }, at: now + 2500 };
   }
   return null;
 }
@@ -185,14 +208,16 @@ export function view(s: ImposterState, uid: string): ImposterView {
   const id = (i: number | null) => (i === null ? null : s.players[i].id);
   return {
     kind: "imposter", phase: s.phase, round: s.round, rounds: s.opts.rounds, ends: s.ends,
-    turn: s.phase === "clues" ? id(s.turn) : s.phase === "guess" ? id(s.accused) : null,
-    done: s.phase === "vote" ? Object.keys(s.votes).map((k) => s.players[Number(k)].id) : [],
+    // In the guess phase any imposter may answer, so each one sees it as their turn.
+    turn: s.phase === "clues" ? id(s.turn) : s.phase === "guess" ? id(imp ? me : s.imposters[0]) : null,
+    done: s.phase === "vote" ? s.players.filter((_, i) => (s.votes[i]?.length ?? 0) >= need(s)).map((p) => p.id) : [],
     winners: s.winners.map((i) => s.players[i].id), outcome: s.outcome,
     gained: Object.fromEntries(s.gained.map((g, i) => [s.players[i].id, g])),
     category: PACKS[s.pack], word: imp && !shown ? null : entryOf(s).word, youAreImposter: imp,
     lap: Math.min(s.lap, s.opts.laps), laps: s.opts.laps,
     clues: s.clues.map((c) => ({ id: s.players[c.seat].id, text: c.text })),
-    votes: s.phase === "clues" || s.phase === "vote" ? null : Object.fromEntries(Object.entries(s.votes).map(([k, t]) => [s.players[Number(k)].id, id(t)])),
-    accused: id(s.accused), guess: s.guess, imposters: shown ? s.imposters.map((i) => s.players[i].id) : null,
+    votes: s.phase === "clues" || s.phase === "vote" ? null : Object.fromEntries(Object.entries(s.votes).map(([k, t]) => [s.players[Number(k)].id, t.map((x) => s.players[x].id)])),
+    picks: need(s), mine: (s.votes[me] ?? []).map((x) => s.players[x].id),
+    accused: s.accused.map((x) => s.players[x].id), guess: s.guess, imposters: shown ? s.imposters.map((i) => s.players[i].id) : null,
   };
 }
