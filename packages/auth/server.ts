@@ -5,9 +5,10 @@ import { randomInt } from "node:crypto";
 import { admin, anonymous } from "better-auth/plugins";
 import { db } from "@repo/data";
 import * as schema from "@repo/data/schema";
+import { cleanName } from "./names.ts";
 import { roleForNewUser } from "./roles.ts";
 
-export { roleForNewUser };
+export { cleanName, roleForNewUser };
 export { toNextJsHandler } from "better-auth/next-js";
 
 /**
@@ -54,14 +55,25 @@ function build(serviceName: string, guests: boolean) {
                 message: "This email must sign in with Google.",
               });
             }
-            return { data: { ...user, role } };
+            // A name from Google can be long or odd: shorten it rather than refuse the sign-in.
+            return { data: { ...user, name: cleanName(String(user.name ?? "").trim().slice(0, 40)) ?? "Player", role } };
           },
+        },
+        // Anyone can change their name at any time (updateUser); the same rules apply as at sign-up.
+        update: {
+          before: async (user) => ({ data: "name" in user && user.name !== undefined ? { ...user, name: checkedName(user.name) } : user }),
         },
       },
     },
     // Each app on its own cookie, so two apps on one domain (e.g. localhost) don't collide.
     advanced: { cookiePrefix: serviceName },
   });
+}
+
+function checkedName(name: unknown) {
+  const clean = cleanName(name);
+  if (!clean) throw new APIError("BAD_REQUEST", { message: "Names are 2 to 40 characters." });
+  return clean;
 }
 
 export type Auth = ReturnType<typeof build>;
