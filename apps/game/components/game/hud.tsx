@@ -13,6 +13,7 @@ import { send } from "@/lib/socket";
 import { HEX, backDataUrl, faceDataUrl } from "./card-art";
 import { PartyOptions } from "./party";
 import { FieldOption, RuleOption } from "./rules";
+import { NameEdit } from "../name-edit";
 import { AvatarPicker } from "./social";
 
 import { keyLabel, useHotkey } from "./keys";
@@ -337,7 +338,8 @@ export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => v
         </section>
 
         <section>
-          <h2 className="mb-2 text-sm font-bold text-white/70">Your avatar</h2>
+          <h2 className="mb-2 text-sm font-bold text-white/70">You</h2>
+          <div className="mb-3"><NameEdit name={room.players.find((p) => p.id === room.you)?.name ?? ""} /></div>
           <AvatarPicker room={room} />
         </section>
 

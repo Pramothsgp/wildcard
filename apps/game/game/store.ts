@@ -65,6 +65,12 @@ export async function codeTaken(code: string) {
   return rows.length > 0;
 }
 
+/** A user's current display name. */
+export async function nameOf(userId: string) {
+  const rows = await db.select({ name: user.name }).from(user).where(eq(user.id, userId)).limit(1);
+  return rows[0]?.name ?? null;
+}
+
 /** The room a user is still seated in, if any: lets them get back after closing the tab. */
 export async function liveRoomFor(userId: string) {
   const rows = await db
