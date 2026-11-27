@@ -46,14 +46,15 @@ export const leading = (votes: Record<number, number | null>, not: (seat: number
 
 export const REVEAL_MS = 15_000;
 
-/** Score the round, then move to the reveal (or the end of the match). */
-export function closeRound(s: Base & { phase: string }, gained: number[], text: string, now: number, ev: GameEvent[]) {
+/** Score the round, then move to the reveal (or the end of the match). `last` says if the match is over,
+ * for games with several turns per round. */
+export function closeRound(s: Base & { phase: string }, gained: number[], text: string, now: number, ev: GameEvent[], last = s.round >= s.opts.rounds) {
   s.gained = gained;
   s.winners = gained.flatMap((g, i) => (g > 0 ? [i] : []));
   gained.forEach((g, i) => (s.players[i].score += g));
   s.outcome = text;
   ev.push({ kind: "roundOver", seat: s.winners[0], text, data: { points: gained } });
-  if (s.round >= s.opts.rounds) {
+  if (last) {
     s.phase = "over";
     s.ends = null;
     s.champ = s.players.reduce((best, p, i) => (p.score > s.players[best].score ? i : best), 0);
