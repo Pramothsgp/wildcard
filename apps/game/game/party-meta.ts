@@ -19,7 +19,7 @@ export const GAMES = {
   },
   draw: {
     name: "Draw it", blurb: "Draw, guess, laugh. Classic drawing and guessing, or team relay where your teammates draw the word in turns.", min: 3, max: MAX_PLAYERS,
-    points: "Guess the word for +50, plus up to +50 for speed. Classic drawers get +10 for each player who guesses. Winning a match adds 100.",
+    points: "Guess the word for +50, plus up to +50 for speed (more for hard words). Classic drawers get +10 for each player who guesses. Winning a match adds 100.",
   },
 } satisfies Record<string, { name: string; blurb: string; min: number; max: number; points: string }>;
 
@@ -190,8 +190,9 @@ export type DrawView = Common & {
   /** The word with unrevealed letters as underscores, e.g. "P _ _ _ a". */
   hint: string;
   category: string;
+  level: "easy" | "medium" | "hard" | null;
   /** Words to choose from, only for the drawer picking one. */
-  choices: string[] | null;
+  choices: { word: string; level: "easy" | "medium" | "hard" }[] | null;
   /** Wrong guesses. `close` is only set on your own guesses. */
   guesses: { id: string; text: string; close: boolean }[];
   /** Players who got the word, in order. */
@@ -227,6 +228,7 @@ export const PARTY_RULES: Record<PartyKind, { title: string; text: string }[]> =
     { title: "Team relay", text: "On your team's turn one player is the guesser. The first drawer picks one of three words, then each teammate draws for the set number of seconds before the pen passes on, all on the same drawing. Everyone can see the word except the guesser, other teams included, so only the guesser guesses. The guesser changes every turn." },
     { title: "Hints", text: "Letters of the word appear as time goes by. Wrong guesses are shown; a guess that is nearly right is marked as close, for you only. No letters or numbers in the drawing!" },
     { title: "Tools", text: "Pen, eraser, paint bucket, line, box and oval, 16 colours plus any custom colour, four brush sizes, undo, redo and clear. Drawers can hand over early with Pass." },
-    { title: "Scoring", text: "Classic: guess it for +50 plus up to +50 for speed; the drawer gets +10 for each player who guesses. Team relay: when the guesser gets it, everyone on the team gets +50 plus up to +50 for speed. The match winner gets +100 on the leaderboard." },
+    { title: "Words", text: "The drawer picks from an easy, a medium and a hard word. Easy words score 0.8 times the points, hard words 1.3 times. With the Mixed pack, words come from the themed packs and a list of everyday things to draw. Many words are from Google's Quick, Draw! (quickdraw.withgoogle.com), used under CC BY 4.0." },
+    { title: "Scoring", text: "Classic: guess it for +50 plus up to +50 for speed; the drawer gets +10 for each player who guesses. Team relay: when the guesser gets it, everyone on the team gets +50 plus up to +50 for speed. Then the word's level applies. The match winner gets +100 on the leaderboard." },
   ],
 };
