@@ -8,7 +8,9 @@ import type { Action, RoomView, ServerMsg } from "@/game/protocol";
 import { themeOf } from "@/game/themes";
 import { send, useSocket, useSocketStatus } from "@/lib/socket";
 import { ActionBar, Btn, LobbyPanel, Modal, RoundModal, SidePanel, TopBar } from "./hud";
+import { DrawGame } from "./draw-game";
 import { ImposterGame } from "./imposter-game";
+import { sketchFeed } from "./sketch-paint";
 import { VillageGame } from "./village-game";
 import { RulesPanel } from "./rules";
 import { HEX } from "./card-art";
@@ -35,6 +37,7 @@ export function GameClient({ code, kind }: { code: string; kind: GameKind }) {
       if (m.room.kind !== kind) return router.replace(roomPath(m.room.kind, code));
       setRoom(m.room);
     }
+    if (m.t === "board" || m.t === "op" || m.t === "ink") sketchFeed(m);
     if (m.t === "error") setToast(m.message);
     if (m.t === "left") router.push(`/${kind}`);
   }, [code, kind, router]);
@@ -112,7 +115,7 @@ export function GameClient({ code, kind }: { code: string; kind: GameKind }) {
 
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-[#0a0705] text-white select-none">
-      {room.kind === "wildcard" ? <Table room={room} onPlay={onPlay} onDraw={onDraw} /> : room.kind === "imposter" ? <ImposterGame room={room} /> : <VillageGame room={room} />}
+      {room.kind === "wildcard" ? <Table room={room} onPlay={onPlay} onDraw={onDraw} /> : room.kind === "imposter" ? <ImposterGame room={room} /> : room.kind === "draw" ? <DrawGame room={room} /> : <VillageGame room={room} />}
       <TopBar room={room} status={status} onRules={() => setRules(true)} />
       <SidePanel room={room} />
       {room.status === "lobby" && <LobbyPanel room={room} onRules={() => setRules(true)} />}

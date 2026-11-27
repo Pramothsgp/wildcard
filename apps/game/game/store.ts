@@ -5,7 +5,7 @@ import { and, asc, desc, eq, inArray, isNull, notInArray, sql } from "drizzle-or
 import type { GameKind } from "./party-meta.ts";
 
 /** Rooms of one game. Wildcard rooms store their mode (classic, flip...); party rooms store their kind. */
-const ofKind = (kind: GameKind) => (kind === "wildcard" ? notInArray(room.mode, ["imposter", "village"]) : eq(room.mode, kind));
+const ofKind = (kind: GameKind) => (kind === "wildcard" ? notInArray(room.mode, ["imposter", "village", "draw"]) : eq(room.mode, kind));
 
 export type RoomRow = typeof room.$inferInsert;
 export type EventRow = Omit<typeof gameEvent.$inferInsert, "id" | "createdAt">;

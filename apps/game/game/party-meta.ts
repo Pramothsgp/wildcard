@@ -1,4 +1,4 @@
-// Party games (Imposter, Night Village): names, options and what the client sees.
+// Party games (Imposter, Night Village, Draw it): names, options and what the client sees.
 // No server imports, so the browser can use it too.
 
 /** Every game seats up to this many. */
@@ -17,6 +17,10 @@ export const GAMES = {
     name: "Night Village", blurb: "Hidden roles. Wolves strike at night, the village votes by day. Find them before it's too late.", min: 4, max: MAX_PLAYERS,
     points: "Everyone on the winning side scores +30, +10 more if still in at the end. Winning a match adds 100.",
   },
+  draw: {
+    name: "Draw it", blurb: "Draw, guess, laugh. Classic drawing and guessing, or team relay where your teammates draw the word in turns.", min: 3, max: MAX_PLAYERS,
+    points: "Guess the word for +50, plus up to +50 for speed. Classic drawers get +10 for each player who guesses. Winning a match adds 100.",
+  },
 } satisfies Record<string, { name: string; blurb: string; min: number; max: number; points: string }>;
 
 export type GameKind = keyof typeof GAMES;
@@ -25,7 +29,7 @@ export const isGameKind = (v: unknown): v is GameKind => typeof v === "string" &
 export const gameName = (k: string) => (isGameKind(k) ? GAMES[k].name : k);
 /** The stored room mode is a Wildcard mode, or the party game's kind. */
 export const kindOf = (mode: string): GameKind => (isGameKind(mode) ? mode : "wildcard");
-/** Each game lives under its own path: /wildcard, /imposter, /village. */
+/** Each game lives under its own path: /wildcard, /imposter, /village, /draw. */
 export const roomPath = (kind: GameKind, code: string) => `/${kind}/room/${code}`;
 
 export const PACKS = {
@@ -43,19 +47,26 @@ export type PackId = Exclude<keyof typeof PACKS, "mixed">;
 export const isPack = (v: unknown): v is keyof typeof PACKS => typeof v === "string" && v in PACKS;
 
 export type PartyOpts = {
-  /** Imposter: word pack. */
+  /** Imposter and Draw it: word pack. */
   pack: keyof typeof PACKS;
   /** Imposter: most imposters wanted (2 needs 6+ players, 3 needs 12+). */
   imposters: number;
-  /** Imposter: how many times round the table each player gives a clue. */
+  /** Imposter: how many times round the table each player gives a clue. Draw it: turns each drawer gets per word. */
   laps: number;
   /** Rounds in the match. */
   rounds: number;
-  /** Seconds per clue (Imposter) or per night (Night Village). Votes get three times this. */
+  /** Seconds per clue (Imposter), per night (Night Village) or per drawer's turn (Draw it). Votes get three times this. */
   seconds: number;
+  /** Draw it: how many teams in team relay (fewer if there aren't 2 players for each). */
+  teams: number;
+  /** Draw it: classic (one drawer, everyone guesses) or team relay (teammates draw in turns for one guesser). */
+  style: DrawStyle;
 };
 
-export const DEFAULT_PARTY: PartyOpts = { pack: "mixed", imposters: 1, laps: 2, rounds: 3, seconds: 30 };
+export const DRAW_STYLES = { classic: "Classic", relay: "Team relay" } as const;
+export type DrawStyle = keyof typeof DRAW_STYLES;
+
+export const DEFAULT_PARTY: PartyOpts = { pack: "mixed", imposters: 1, laps: 2, rounds: 3, seconds: 30, teams: 2, style: "classic" };
 
 const num = (v: unknown, min: number, max: number, fallback: number) =>
   typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : fallback;
@@ -69,6 +80,8 @@ export function sanitizeParty(input: unknown, prev: PartyOpts = DEFAULT_PARTY): 
     laps: num(o.laps, 1, 3, prev.laps),
     rounds: num(o.rounds, 1, 10, prev.rounds),
     seconds: num(o.seconds, 10, 120, prev.seconds),
+    teams: num(o.teams, 2, 4, prev.teams ?? DEFAULT_PARTY.teams),
+    style: typeof o.style === "string" && o.style in DRAW_STYLES ? (o.style as DrawStyle) : (prev.style ?? DEFAULT_PARTY.style),
   };
 }
 
@@ -76,7 +89,11 @@ export type PartyAction =
   | { type: "clue"; text: string }
   | { type: "vote"; target: string | null }
   | { type: "guess"; text: string }
-  | { type: "pick"; target: string };
+  | { type: "pick"; target: string }
+  /** Draw it: choose one of the offered words. */
+  | { type: "word"; index: number }
+  /** Draw it: finish your drawing turn early and hand the pen on. */
+  | { type: "pass" };
 
 export type Role = "wolf" | "seer" | "healer" | "villager";
 export const ROLES: Record<Role, { name: string; team: "wolves" | "village"; detail: string }> = {
@@ -142,7 +159,50 @@ export type VillageView = Common & {
   winner: "wolves" | "village" | null;
 };
 
-export type PartyView = ImposterView | VillageView;
+/** Draw it team names and colours, by team number. */
+export const TEAMS = [
+  { name: "Red", color: "#ef4444" },
+  { name: "Blue", color: "#3b82f6" },
+  { name: "Green", color: "#22c55e" },
+  { name: "Gold", color: "#eab308" },
+];
+
+export type DrawView = Common & {
+  kind: "draw";
+  style: DrawStyle;
+  /** pick: the (first) drawer chooses a word. draw: the drawing is on. */
+  phase: "pick" | "draw" | "reveal" | "over";
+  /** Team relay: members and total points of each team, by team number (see TEAMS). Empty in classic. */
+  teams: { members: string[]; score: number }[];
+  yourTeam: number | null;
+  /** Team relay: the team playing this word. */
+  active: number;
+  /** Team relay: the one player guessing. Null in classic, where everyone but the drawer guesses. */
+  guesser: string | null;
+  /** Whose turn it is to draw, and the drawing order. */
+  drawer: string | null;
+  drawers: string[];
+  slot: number;
+  slots: number;
+  /** The word, for everyone who may see it: the drawer and players who already guessed it (classic),
+   * everyone except the guesser (team relay), and everyone once the round is over. */
+  word: string | null;
+  /** The word with unrevealed letters as underscores, e.g. "P _ _ _ a". */
+  hint: string;
+  category: string;
+  /** Words to choose from, only for the drawer picking one. */
+  choices: string[] | null;
+  /** Wrong guesses. `close` is only set on your own guesses. */
+  guesses: { id: string; text: string; close: boolean }[];
+  /** Players who got the word, in order. */
+  solved: string[];
+  canGuess: boolean;
+  canDraw: boolean;
+  /** Changes with every new word, so screens know to wipe the board. */
+  turnKey: number;
+};
+
+export type PartyView = ImposterView | VillageView | DrawView;
 
 /** How to play, shown in the Rules panel. */
 export const PARTY_RULES: Record<PartyKind, { title: string; text: string }[]> = {
@@ -160,5 +220,13 @@ export const PARTY_RULES: Record<PartyKind, { title: string; text: string }[]> =
     { title: "Roles", text: "Wolf, Seer, Healer and Villager. 1 wolf up to 6 players, then about one wolf for every 4 or 5 players (4 wolves at 20). A healer joins from 5 players." },
     { title: "Fair play", text: "Players who are out can still read and type in chat. Please keep quiet about what you know." },
     { title: "Scoring", text: "Everyone on the winning side scores +30, and +10 more if still in at the end. The match winner gets +100 on the leaderboard." },
+  ],
+  draw: [
+    { title: "Two ways to play", text: "Classic: players take turns drawing a word while everyone else guesses. Team relay: players split into teams and the teams take turns; one player guesses while their teammates draw the word together." },
+    { title: "Classic", text: "The drawer picks one of three words and has the set time to draw it. Everyone else guesses; the faster you get it, the more you score, and once you have it you see the word too. The turn ends when everyone has guessed or time runs out." },
+    { title: "Team relay", text: "On your team's turn one player is the guesser. The first drawer picks one of three words, then each teammate draws for the set number of seconds before the pen passes on, all on the same drawing. Everyone can see the word except the guesser, other teams included, so only the guesser guesses. The guesser changes every turn." },
+    { title: "Hints", text: "Letters of the word appear as time goes by. Wrong guesses are shown; a guess that is nearly right is marked as close, for you only. No letters or numbers in the drawing!" },
+    { title: "Tools", text: "Pen, eraser, paint bucket, line, box and oval, 16 colours plus any custom colour, four brush sizes, undo, redo and clear. Drawers can hand over early with Pass." },
+    { title: "Scoring", text: "Classic: guess it for +50 plus up to +50 for speed; the drawer gets +10 for each player who guesses. Team relay: when the guesser gets it, everyone on the team gets +50 plus up to +50 for speed. The match winner gets +100 on the leaderboard." },
   ],
 };

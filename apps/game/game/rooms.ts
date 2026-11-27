@@ -7,10 +7,13 @@ import { botAction } from "./bots.ts";
 import { cleanAction, cleanPartyAction, cleanSettings } from "./clean.ts";
 import { GameError, type GameEvent, type GameState, act, createGame, startRound } from "./engine.ts";
 import { MODES, ruleChanges } from "./modes.ts";
+import { drawingNow } from "./draw.ts";
 import { type PartyState, actParty, botParty, createParty, startParty, timeoutParty } from "./party.ts";
 import { DEFAULT_PARTY, GAMES } from "./party-meta.ts";
 import { AVATARS, REACTIONS, REACTION_MS } from "./help.ts";
 import type { Action, ChatLine, ClientMsg, LogLine, Reaction, RoomSettings, RoomSummary, RoomView, ServerMsg } from "./protocol.ts";
+import { cleanCmd } from "./sketch-ops.ts";
+import { type Board, apply, blankBoard, boardFor, boardMsg } from "./sketch-room.ts";
 import * as store from "./store.ts";
 import { viewFor } from "./view.ts";
 import { THEMES, botName } from "./themes.ts";
@@ -19,7 +22,7 @@ type Member = { id: string; name: string; bot: boolean; left?: boolean; avatar?:
 type Status = RoomView["status"];
 /** `game` is a Wildcard game, `party` an Imposter or Night Village game. At most one is set. */
 export type Saved = { settings: RoomSettings; hostId: string; members: Member[]; game: GameState | null; party?: PartyState | null; seq: number; log: LogLine[]; chat: ChatLine[] };
-export type Conn = { ws: WebSocket; user: { id: string; name: string }; room: string | null; lobby: boolean; tokens: number; lastChat: number; lastReact: number };
+export type Conn = { ws: WebSocket; user: { id: string; name: string }; room: string | null; lobby: boolean; tokens: number; drawTokens: number; lastChat: number; lastReact: number };
 
 // No constructor parameter properties: the server runs on Node's type stripping.
 class Room {
@@ -29,6 +32,8 @@ class Room {
   queue: Promise<void> = Promise.resolve();
   /** Recent reactions. Memory only: they are gone in seconds, so not worth saving. */
   reactions: Reaction[] = [];
+  /** Draw it: the drawing on the board. Memory only. */
+  board: Board = blankBoard();
   code: string;
   status: Status;
   s: Saved;
@@ -57,19 +62,20 @@ export async function init() {
 }
 
 export function connect(ws: WebSocket, user: { id: string; name: string }) {
-  const c: Conn = { ws, user, room: null, lobby: false, tokens: 20, lastChat: 0, lastReact: 0 };
+  const c: Conn = { ws, user, room: null, lobby: false, tokens: 20, drawTokens: 60, lastChat: 0, lastReact: 0 };
   conns.add(c);
   const live = liveRoomOf(user.id);
   send(c, { t: "welcome", you: user, activeRoom: live?.code ?? null });
   ws.on("message", (raw) => {
-    // ponytail: token bucket per socket, refilled by a shared 1s interval below.
-    if (c.tokens-- <= 0) return send(c, { t: "error", message: "Slow down" });
     let msg: ClientMsg;
     try {
       msg = JSON.parse(String(raw));
     } catch {
       return;
     }
+    // ponytail: token buckets per socket, refilled by a shared 1s interval below. Drawing has its own,
+    // bigger one: a drawer sends many small messages and shouldn't be told to slow down mid-stroke.
+    if (msg?.t === "draw" ? c.drawTokens-- <= 0 : c.tokens-- <= 0) return msg?.t === "draw" ? undefined : send(c, { t: "error", message: "Slow down" });
     try {
       handle(c, msg);
     } catch (err) {
@@ -85,7 +91,7 @@ export function connect(ws: WebSocket, user: { id: string; name: string }) {
     detach(c);
   });
 }
-setInterval(() => { for (const c of conns) c.tokens = Math.min(20, c.tokens + 10); }, 1000).unref();
+setInterval(() => { for (const c of conns) Object.assign(c, { tokens: Math.min(20, c.tokens + 10), drawTokens: Math.min(60, c.drawTokens + 30) }); }, 1000).unref();
 
 const liveRoomOf = (userId: string) =>
   [...rooms.values()].find((r) => (r.status === "lobby" || r.status === "playing") && r.s.members.some((m) => m.id === userId && !m.left));
@@ -248,6 +254,18 @@ function handle(c: Conn, m: ClientMsg) {
       const action = cleanPartyAction(m.action);
       return playParty(room, uid, () => actParty(p!, seat, action));
     }
+    case "draw": {
+      const p = room.s.party;
+      if (room.status !== "playing" || p?.kind !== "draw") return;
+      const now = drawingNow(p);
+      // A late step from the last drawer is dropped quietly, not shown as an error.
+      if (now.drawer !== uid) return;
+      const cmd = cleanCmd(m.cmd);
+      need(cmd, "Bad drawing step");
+      const out = apply(boardFor(room.board, now.key), cmd!);
+      for (const set of room.sockets.values()) for (const k of set) if (out.all || k !== c) send(k, (out.all ?? out.others)!);
+      return;
+    }
   }
 }
 
@@ -384,8 +402,9 @@ function scheduleParty(room: Room, p: PartyState) {
   const now = Date.now();
   room.deadline = p.ends;
   let delay = p.ends === null ? null : Math.max(0, p.ends - now);
-  // Nobody waits out the full clock for a clue from someone who has gone.
-  if (p.kind === "imposter" && p.phase === "clues" && !p.players[p.turn].bot && !connected(room, p.players[p.turn].id)) delay = Math.min(delay ?? 3000, 3000);
+  // Nobody waits out the full clock for a clue, word or drawing from someone who has gone.
+  const waiting = p.kind === "imposter" && p.phase === "clues" ? p.turn : p.kind === "draw" ? drawingNow(p).waitingOn : null;
+  if (waiting !== null && !p.players[waiting].bot && !connected(room, p.players[waiting].id)) delay = Math.min(delay ?? 3000, 3000);
   const bot = botParty(p, now);
   const botDelay = bot ? Math.max(800 + randomInt(700), bot.at - now) : null;
   if (bot && botDelay !== null && (delay === null || botDelay < delay)) {
@@ -433,6 +452,7 @@ function attach(c: Conn, room: Room) {
   set.add(c);
   room.sockets.set(c.user.id, set);
   send(c, { t: "joined", code: room.code });
+  if (room.s.party?.kind === "draw") send(c, boardMsg(boardFor(room.board, drawingNow(room.s.party).key)));
 }
 
 function detach(c: Conn) {

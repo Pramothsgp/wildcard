@@ -2,6 +2,7 @@
 import type { Color, Face, Side } from "./cards.ts";
 import type { ModeId, Rules } from "./modes.ts";
 import type { GameKind, PartyAction, PartyOpts, PartyView } from "./party-meta.ts";
+import type { DrawCmd, Op } from "./sketch-ops.ts";
 import type { ThemeId } from "./themes.ts";
 
 export type Action =
@@ -100,6 +101,8 @@ export type ClientMsg =
   | { t: "next" }
   | { t: "act"; action: Action }
   | { t: "party"; action: PartyAction }
+  /** Draw it: a drawing step from the current drawer. */
+  | { t: "draw"; cmd: DrawCmd }
   | { t: "chat"; text: string }
   | { t: "react"; text: string }
   | { t: "avatar"; id: string };
@@ -110,4 +113,8 @@ export type ServerMsg =
   | { t: "joined"; code: string }
   | { t: "left" }
   | { t: "state"; room: RoomView }
+  /** Draw it: the whole board (on joining, and after undo or redo), one new step, or the stroke in progress. */
+  | { t: "board"; key: number; ops: Op[] }
+  | { t: "op"; key: number; op: Op }
+  | { t: "ink"; key: number; ink: Extract<DrawCmd, { k: "ink" }> }
   | { t: "error"; message: string };
