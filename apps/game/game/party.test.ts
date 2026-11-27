@@ -75,6 +75,36 @@ test("imposter: a right guess steals the round; a tie lets the imposter escape",
   expect(t.players[3].score).toBe(30);
 });
 
+test("imposter: with 2 imposters everyone picks 2, and both must be accused", () => {
+  const s = imposter(6);
+  s.imposters = [4, 5];
+  clueRound(s);
+  actParty(s, 0, { type: "vote", target: "p4" }, 0);
+  expect(iv(s, "p0").mine).toEqual(["p4"]);
+  expect(iv(s, "p0").done).toEqual([]);
+  actParty(s, 0, { type: "vote", target: "p1" }, 0);
+  actParty(s, 0, { type: "vote", target: "p1" }, 0); // tapping again drops the pick
+  actParty(s, 0, { type: "vote", target: "p5" }, 0);
+  expect(iv(s, "p0").done).toEqual(["p0"]);
+  for (const i of [1, 2, 3]) for (const t of ["p4", "p5"]) actParty(s, i, { type: "vote", target: t }, 0);
+  for (const i of [4, 5]) for (const t of ["p0", "p1"]) actParty(s, i, { type: "vote", target: t }, 0);
+  expect(s.phase).toBe("guess");
+  expect(iv(s, "p0").accused).toEqual(["p4", "p5"]);
+  expect(iv(s, "p5").turn).toBe("p5");
+  actParty(s, 5, { type: "guess", text: "nope" }, 0);
+  expect(s.players.map((p) => p.score)).toEqual([40, 40, 40, 40, 0, 0]);
+
+  // Only one imposter accused: the imposters win, the caught one scores less.
+  const t = imposter(6);
+  t.imposters = [4, 5];
+  clueRound(t);
+  for (const i of [0, 1, 2, 3]) for (const v of ["p4", i === 0 ? "p5" : "p0"]) actParty(t, i, { type: "vote", target: v }, 0);
+  for (const i of [4, 5]) for (const v of ["p0", "p1"]) actParty(t, i, { type: "vote", target: v }, 0);
+  expect(t.phase).toBe("reveal");
+  expect(iv(t, "p0").accused).toEqual(["p0", "p4"]);
+  expect(t.players.map((p) => p.score)).toEqual([0, 0, 0, 0, 20, 30]);
+});
+
 test("imposter: timeouts skip a clue, and the match ends after the set rounds", () => {
   const s = imposter(3, { rounds: 1 });
   s.imposters = [2];
@@ -89,7 +119,7 @@ test("imposter: timeouts skip a clue, and the match ends after the set rounds", 
 });
 
 test("imposter: an all-bot table plays itself to the end", () => {
-  const s = createParty("imposter", players(5, true), opts({ rounds: 3, laps: 2 }));
+  const s = createParty("imposter", players(7, true), opts({ rounds: 3, laps: 2, imposters: 2 }));
   startParty(s, 0);
   let now = 0;
   for (let guard = 0; s.phase !== "over" && guard < 500; guard++) {

@@ -44,3 +44,8 @@
 - What: autopilot (a human who left or timed out) only ever drew. Two such seats soaked up the whole deck until the draw pile and discard were empty and the remaining players could only shuffle the last couple of cards around, so the round never ended.
 - Root cause: "draw instead of play" was meant to stop autopilot winning for an absent player, but drawing without limit removes cards from circulation.
 - Prevention: anything the server plays on a player's behalf must still shed cards. Autopilot now plays its first valid card and never calls "WILDCARD!" (so others can still catch it). The bot test runs every level, autopilot included, in every mode.
+
+## Imposter allowed one vote even with 2 or 3 imposters
+- What: at 6+ players there can be several imposters, but each player could only vote for one suspect and only one player could be accused, so the crew could never catch them all.
+- Root cause: the vote and the accusation were written for a single imposter (one target per voter, one accused seat).
+- Prevention: any rule that depends on the imposter count reads it from `s.imposters.length`. Each player now picks one suspect per imposter, the top vote-getters (one per imposter) are accused, and the crew wins only if every imposter is accused.
