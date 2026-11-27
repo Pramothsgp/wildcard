@@ -1,11 +1,12 @@
 // One entry point for the party games, so the room code doesn't care which one is running.
 import type { GameEvent } from "./engine.ts";
+import * as draw from "./draw.ts";
 import * as imposter from "./imposter.ts";
 import type { BotMove } from "./party-core.ts";
 import type { PartyAction, PartyKind, PartyOpts, PartyView } from "./party-meta.ts";
 import * as village from "./village.ts";
 
-export type PartyState = imposter.ImposterState | village.VillageState;
+export type PartyState = imposter.ImposterState | village.VillageState | draw.DrawState;
 type Players = { id: string; name: string; bot: boolean }[];
 
 // Each engine takes its own state type; the kind on the state picks the matching engine.
@@ -17,7 +18,7 @@ type Engine = {
   botStep(s: PartyState, now: number): BotMove | null;
   view(s: PartyState, uid: string): PartyView;
 };
-const ENGINES = { imposter, village } as unknown as Record<PartyKind, Engine>;
+const ENGINES = { imposter, village, draw } as unknown as Record<PartyKind, Engine>;
 const of = (s: PartyState) => ENGINES[s.kind];
 
 export const createParty = (kind: PartyKind, players: Players, opts: PartyOpts) => ENGINES[kind].create(players, opts);

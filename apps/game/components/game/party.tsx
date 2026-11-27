@@ -1,9 +1,9 @@
 "use client";
-// Pieces shared by Imposter and Night Village: the panel, timer, phase steps, text moves,
+// Pieces shared by the party games (Imposter, Night Village, Draw it): the panel, timer, phase steps, text moves,
 // the round result, and the lobby options and rules.
 import Link from "next/link";
 import { type ReactNode, useEffect, useState } from "react";
-import { PACKS, PARTY_RULES, type PartyAction, type PartyKind, type PartyOpts } from "@/game/party-meta";
+import { DRAW_STYLES, PACKS, PARTY_RULES, type PartyAction, type PartyKind, type PartyOpts } from "@/game/party-meta";
 import type { RoomView } from "@/game/protocol";
 import { send } from "@/lib/socket";
 import { Btn } from "./hud";
@@ -37,8 +37,18 @@ export function PartyOptions({ room, host, onChange }: { room: RoomView; host: b
           {select("Clue laps", o.laps, range(1, 3), "laps", "Clues each suspect gives before the vote.")}
         </>
       )}
-      {select("Rounds", o.rounds, range(1, 10), "rounds", "Rounds in the match.")}
-      {select(room.kind === "imposter" ? "Seconds per clue" : "Seconds per night", o.seconds, range(10, 120, 10), "seconds", "Voting gets three times this.")}
+      {room.kind === "draw" && (
+        <>
+          {select("How to play", o.style ?? "classic", Object.entries(DRAW_STYLES), "style", "Classic: one draws, all guess. Relay: teammates draw for one guesser.")}
+          {select("Word pack", o.pack, Object.entries(PACKS), "pack", "Where the words come from.")}
+          {o.style === "relay" && select("Teams", o.teams ?? 2, range(2, 4), "teams", "Needs 2 players per team, or there are fewer teams.")}
+          {o.style === "relay" && select("Turns per drawer", o.laps, range(1, 3), "laps", "How many times the pen goes round the team per word.")}
+        </>
+      )}
+      {select("Rounds", o.rounds, range(1, 10), "rounds", room.kind === "draw" ? "Each player (classic) or team (relay) gets a word per round." : "Rounds in the match.")}
+      {room.kind === "draw"
+        ? select("Seconds per drawer", o.seconds, range(10, 120, 10), "seconds", o.style === "relay" ? "Each drawer's turn with the pen." : "Classic drawers get three times this.")
+        : select(room.kind === "imposter" ? "Seconds per clue" : "Seconds per night", o.seconds, range(10, 120, 10), "seconds", "Voting gets three times this.")}
     </div>
   );
 }
@@ -56,7 +66,7 @@ export function PartyRules({ kind }: { kind: PartyKind }) {
   );
 }
 
-function Clock({ ends, total }: { ends: number | null; total: number }) {
+export function Clock({ ends, total }: { ends: number | null; total: number }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 250);

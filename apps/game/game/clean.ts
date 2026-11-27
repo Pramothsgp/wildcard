@@ -51,6 +51,11 @@ export function cleanPartyAction(a: unknown): PartyAction {
     case "pick":
       if (typeof o.target === "string") return { type: "pick", target: o.target };
       break;
+    case "word":
+      if (typeof o.index === "number" && Number.isInteger(o.index)) return { type: "word", index: o.index };
+      break;
+    case "pass":
+      return { type: "pass" };
   }
   throw new GameError("Bad action");
 }
