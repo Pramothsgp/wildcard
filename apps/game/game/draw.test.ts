@@ -79,7 +79,8 @@ test("draw: each pick offers an easy, a medium and a hard word, none repeated in
 test("draw relay: one guesser per team; everyone else sees the word; the pen passes in turns", () => {
   const s = game(6, { style: "relay", teams: 2 });
   expect(s.teamCount).toBe(2);
-  const guesser = s.guesser!;
+  const guesser = s.guessers[0];
+  expect(s.guessers.length).toBe(1);
   const team = s.team[guesser];
   expect(s.drawers.every((d) => s.team[d] === team && d !== guesser)).toBe(true);
   expect(s.slots).toBe(2);
@@ -88,7 +89,7 @@ test("draw relay: one guesser per team; everyone else sees the word; the pen pas
   expect(dv(s, id(s, guesser)).word).toBe(null);
   expect(dv(s, id(s, other)).word).toBe(s.word); // the other team sees it too
   expect(dv(s, id(s, other)).canGuess).toBe(false);
-  expect(() => actParty(s, other, { type: "guess", text: s.word }, 0)).toThrow("Only the guesser");
+  expect(() => actParty(s, other, { type: "guess", text: s.word }, 0)).toThrow("Only this turn's guessers");
 
   const first = dv(s, id(s, guesser)).drawer;
   expect(() => actParty(s, s.drawers[1], { type: "pass" }, 0)).toThrow("not your turn to draw");
@@ -106,7 +107,7 @@ test("draw relay: teams take turns, the guesser rotates, and small tables get fe
   expect(s.teamCount).toBe(2);
   const seen: number[] = [];
   for (let k = 0; k < 4; k++) {
-    seen.push(s.guesser!);
+    seen.push(s.guessers[0]);
     timeoutParty(s, 0); // pick
     while (s.phase === "draw") timeoutParty(s, 0);
     if (s.phase === "reveal") startParty(s, 0);
@@ -116,8 +117,8 @@ test("draw relay: teams take turns, the guesser rotates, and small tables get fe
 });
 
 test("draw: an all-bot table plays itself to the end in both styles", () => {
-  for (const style of ["classic", "relay"] as const) {
-    const s = createParty("draw", players(6, true), opts({ style, rounds: 2 })) as DrawState;
+  for (const o of [{ style: "classic" }, { style: "relay" }, { style: "relay", showWord: false, steal: true, guessers: 2 }] as Partial<PartyOpts>[]) {
+    const s = createParty("draw", players(6, true), opts({ ...o, rounds: 2 })) as DrawState;
     startParty(s, 0);
     let now = 0;
     for (let guard = 0; s.phase !== "over" && guard < 2000; guard++) {
@@ -158,4 +159,62 @@ test("sketch: the board keeps steps, undo and redo move them, a new word wipes i
   apply(b, { k: "op", op });
   expect(b.redo).toEqual([]); // a new step drops what could be redone
   expect(boardFor(b, 2).ops).toEqual([]);
+});
+
+test("draw relay: the host can pick the teams; anyone unpicked joins the smallest team", () => {
+  const picks = { p0: 1, p1: 1, p2: 1, p3: 0 };
+  const s = createParty("draw", players(6), opts({ style: "relay", teams: 2, teamPick: "manual", teamOf: picks })) as DrawState;
+  expect(s.team.slice(0, 4)).toEqual([1, 1, 1, 0]);
+  expect(s.team.slice(4)).toEqual([0, 0]); // p4 and p5 fill the smaller team
+  expect(() => createParty("draw", players(4), opts({ style: "relay", teams: 2, teamPick: "manual", teamOf: { p0: 0, p1: 0, p2: 0, p3: 0 } }))).toThrow("Team Blue needs at least 2 players");
+});
+
+test("draw relay: guessers and drawers per turn are set by the host; the rest sit out and can't see the word", () => {
+  const s = game(10, { style: "relay", teams: 2, guessers: 2, drawers: 2 });
+  const team = s.team[s.guessers[0]];
+  expect(s.guessers.length).toBe(2);
+  expect(s.drawers.length).toBe(2);
+  actParty(s, s.drawers[0], { type: "word", index: 0 }, 0);
+  const out = s.players.findIndex((_, i) => s.team[i] === team && !s.guessers.includes(i) && !s.drawers.includes(i));
+  expect(dv(s, id(s, out)).word).toBe(null);
+  expect(dv(s, id(s, out)).canGuess).toBe(false);
+  expect(dv(s, id(s, s.drawers[1])).word).toBe(s.word);
+  // Either guesser can get it.
+  actParty(s, s.guessers[1], { type: "guess", text: s.word }, 0);
+  expect(s.phase).toBe("reveal");
+});
+
+test("draw relay: other teams can be kept from seeing the word, and can then steal a missed one", () => {
+  const s = game(4, { style: "relay", teams: 2, showWord: false, steal: true, laps: 1 });
+  const team = s.team[s.guessers[0]];
+  const other = s.players.findIndex((_, i) => s.team[i] !== team);
+  timeoutParty(s, 0); // word picked
+  expect(dv(s, id(s, other)).word).toBe(null);
+  expect(() => actParty(s, other, { type: "guess", text: s.word }, 0)).toThrow();
+  timeoutParty(s, 0);
+  timeoutParty(s, 0); // both drawing turns run out
+  expect(s.phase).toBe("steal");
+  expect(s.ends).toBe(0 + 20_000); // the steal time is its own setting (default 20s)
+  expect(dv(s, id(s, other)).canGuess).toBe(true);
+  expect(dv(s, id(s, s.guessers[0])).canGuess).toBe(false);
+  actParty(s, other, { type: "guess", text: s.word }, 0);
+  expect(s.phase).toBe("reveal");
+  for (let i = 0; i < 4; i++) expect(s.players[i].score > 0).toBe(s.team[i] !== team);
+
+  // With the word shown to other teams there is no steal, even if it was switched on.
+  const t = game(4, { style: "relay", teams: 2, showWord: true, steal: true, laps: 1 });
+  timeoutParty(t, 0);
+  timeoutParty(t, 0);
+  timeoutParty(t, 0);
+  expect(t.phase).toBe("reveal");
+});
+
+test("lobby changes merge on the server, so quick picks don't overwrite each other", () => {
+  const first = sanitizeParty({ teamOf: { p0: 1 } }, DEFAULT_PARTY);
+  const second = sanitizeParty({ teamOf: { p1: 0 } }, first); // sent before the first came back
+  expect(second.teamOf).toEqual({ p0: 1, p1: 0 });
+  expect(sanitizeParty({ teamOf: { p0: -1 } }, second).teamOf).toEqual({ p1: 0 }); // back to auto
+  expect(sanitizeParty({ teamOf: { p2: 7, ["x".repeat(99)]: 1 } }, second).teamOf).toEqual({ p0: 1, p1: 0 }); // bad picks ignored
+  const steal = sanitizeParty({ steal: true }, { ...DEFAULT_PARTY, guessers: 3 });
+  expect([steal.steal, steal.guessers]).toEqual([true, 3]); // other options untouched
 });

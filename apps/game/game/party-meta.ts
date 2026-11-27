@@ -61,12 +61,28 @@ export type PartyOpts = {
   teams: number;
   /** Draw it: classic (one drawer, everyone guesses) or team relay (teammates draw in turns for one guesser). */
   style: DrawStyle;
+  /** Team relay: random teams, or the host puts each player on a team (teamOf). */
+  teamPick: "random" | "manual";
+  /** Team relay, manual teams: player id → team number. Players not listed are placed automatically. */
+  teamOf: Record<string, number>;
+  /** Team relay: players guessing on each turn (as many as the team allows). */
+  guessers: number;
+  /** Team relay: players drawing on each turn. 0 means everyone else on the team. */
+  drawers: number;
+  /** Team relay: whether the other teams see the word. */
+  showWord: boolean;
+  /** Team relay: if the team runs out of time, the other teams get a go at guessing it. Only when they can't see it. */
+  steal: boolean;
+  /** Team relay: how long the other teams have to steal a missed word. */
+  stealSeconds: number;
 };
 
 export const DRAW_STYLES = { classic: "Classic", relay: "Team relay" } as const;
 export type DrawStyle = keyof typeof DRAW_STYLES;
 
-export const DEFAULT_PARTY: PartyOpts = { pack: "mixed", imposters: 1, laps: 2, rounds: 3, seconds: 30, teams: 2, style: "classic" };
+export const DEFAULT_PARTY: PartyOpts = { pack: "mixed", imposters: 1, laps: 2, rounds: 3, seconds: 30, teams: 2, style: "classic",
+  teamPick: "random", teamOf: {}, guessers: 1, drawers: 0, showWord: true, steal: false, stealSeconds: 20,
+};
 
 const num = (v: unknown, min: number, max: number, fallback: number) =>
   typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, Math.round(v))) : fallback;
@@ -82,7 +98,30 @@ export function sanitizeParty(input: unknown, prev: PartyOpts = DEFAULT_PARTY): 
     seconds: num(o.seconds, 10, 120, prev.seconds),
     teams: num(o.teams, 2, 4, prev.teams ?? DEFAULT_PARTY.teams),
     style: typeof o.style === "string" && o.style in DRAW_STYLES ? (o.style as DrawStyle) : (prev.style ?? DEFAULT_PARTY.style),
+    teamPick: o.teamPick === "random" || o.teamPick === "manual" ? o.teamPick : (prev.teamPick ?? DEFAULT_PARTY.teamPick),
+    teamOf: teamOf(o.teamOf, prev.teamOf ?? {}),
+    guessers: num(o.guessers, 1, 5, prev.guessers ?? DEFAULT_PARTY.guessers),
+    drawers: num(o.drawers, 0, 10, prev.drawers ?? DEFAULT_PARTY.drawers),
+    showWord: typeof o.showWord === "boolean" ? o.showWord : (prev.showWord ?? DEFAULT_PARTY.showWord),
+    steal: typeof o.steal === "boolean" ? o.steal : (prev.steal ?? DEFAULT_PARTY.steal),
+    stealSeconds: num(o.stealSeconds, 5, 120, prev.stealSeconds ?? DEFAULT_PARTY.stealSeconds),
   };
+}
+
+/**
+ * Manual team picks from a client, merged into the current ones: a client sends only the players it
+ * changed, so two quick picks can't overwrite each other. Team numbers are 0 to 3; -1 means "back to auto".
+ */
+function teamOf(v: unknown, prev: Record<string, number>): Record<string, number> {
+  const next = { ...prev };
+  if (v && typeof v === "object") {
+    for (const [id, t] of Object.entries(v as Record<string, unknown>)) {
+      if (id.length > 64 || typeof t !== "number" || !Number.isInteger(t) || t < -1 || t > 3) continue;
+      if (t === -1) delete next[id];
+      else next[id] = t;
+    }
+  }
+  return Object.fromEntries(Object.entries(next).slice(0, MAX_PLAYERS * 2));
 }
 
 export type PartyAction =
@@ -170,15 +209,16 @@ export const TEAMS = [
 export type DrawView = Common & {
   kind: "draw";
   style: DrawStyle;
-  /** pick: the (first) drawer chooses a word. draw: the drawing is on. */
-  phase: "pick" | "draw" | "reveal" | "over";
+  /** pick: the (first) drawer chooses a word. draw: the drawing is on. steal: team relay, the other teams
+   * get a go at a word the team missed. */
+  phase: "pick" | "draw" | "steal" | "reveal" | "over";
   /** Team relay: members and total points of each team, by team number (see TEAMS). Empty in classic. */
   teams: { members: string[]; score: number }[];
   yourTeam: number | null;
   /** Team relay: the team playing this word. */
   active: number;
-  /** Team relay: the one player guessing. Null in classic, where everyone but the drawer guesses. */
-  guesser: string | null;
+  /** Team relay: the players guessing this turn. Empty in classic, where everyone but the drawer guesses. */
+  guessers: string[];
   /** Whose turn it is to draw, and the drawing order. */
   drawer: string | null;
   drawers: string[];
@@ -225,7 +265,8 @@ export const PARTY_RULES: Record<PartyKind, { title: string; text: string }[]> =
   draw: [
     { title: "Two ways to play", text: "Classic: players take turns drawing a word while everyone else guesses. Team relay: players split into teams and the teams take turns; one player guesses while their teammates draw the word together." },
     { title: "Classic", text: "The drawer picks one of three words and has the set time to draw it. Everyone else guesses; the faster you get it, the more you score, and once you have it you see the word too. The turn ends when everyone has guessed or time runs out." },
-    { title: "Team relay", text: "On your team's turn one player is the guesser. The first drawer picks one of three words, then each teammate draws for the set number of seconds before the pen passes on, all on the same drawing. Everyone can see the word except the guesser, other teams included, so only the guesser guesses. The guesser changes every turn." },
+    { title: "Team relay", text: "On your team's turn some players guess and the rest draw: the first drawer picks one of three words, then each drawer draws for the set number of seconds before the pen passes on, all on the same drawing. The guessers never see the word. Roles rotate every turn." },
+    { title: "Team relay options", text: "The host sets these before starting: random teams or picking each player's team, how many guess and how many draw each turn (anyone left over sits the turn out and can't see the word), whether other teams see the word, and steals. With steals on (only when other teams can't see the word), a word the team hasn't guessed when their time runs out goes to the other teams for a set number of seconds: the first right guess scores +30 for their whole team." },
     { title: "Hints", text: "Letters of the word appear as time goes by. Wrong guesses are shown; a guess that is nearly right is marked as close, for you only. No letters or numbers in the drawing!" },
     { title: "Tools", text: "Pen, eraser, paint bucket, line, box and oval, 16 colours plus any custom colour, four brush sizes, undo, redo and clear. Drawers can hand over early with Pass." },
     { title: "Words", text: "The drawer picks from an easy, a medium and a hard word. Easy words score 0.8 times the points, hard words 1.3 times. With the Mixed pack, words come from the themed packs and a list of everyday things to draw. Many words are from Google's Quick, Draw! (quickdraw.withgoogle.com), used under CC BY 4.0." },

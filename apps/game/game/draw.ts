@@ -23,9 +23,10 @@ export type DrawState = Base & {
   teamCount: number;
   /** Words played so far in the match (1 after the first starts). */
   turnNo: number;
-  /** Team relay: how many times each team has had a guesser, so it rotates. */
+  /** Team relay: how many turns each team has had, so the guessers and drawers rotate. */
   turnsOf: number[];
-  guesser: number | null;
+  /** Team relay: who guesses this turn. Teammates who neither guess nor draw sit this one out. */
+  guessers: number[];
   /** Drawing order for this word; the current drawer is drawers[slot % length]. */
   drawers: number[];
   slot: number;
@@ -53,17 +54,36 @@ const drawerOf = (s: DrawState) => s.drawers[s.slot % s.drawers.length];
 const relay = (s: DrawState) => s.style === "relay";
 const membersOf = (s: DrawState, t: number) => s.players.flatMap((_, i) => (s.team[i] === t ? [i] : []));
 const totalTurns = (s: DrawState) => s.opts.rounds * (relay(s) ? s.teamCount : s.players.length);
+const activeTeam = (s: DrawState) => (relay(s) && s.turnNo ? (s.turnNo - 1) % s.teamCount : 0);
+/** Team relay: other teams get a go at a missed word, but only when they couldn't see it. */
+const stealable = (s: DrawState) => relay(s) && s.teamCount > 1 && !!s.opts.steal && s.opts.showWord === false;
 
-export function create(players: { id: string; name: string; bot: boolean }[], opts: PartyOpts): DrawState {
+/** Team number of each seat: the host's picks (manual), or shuffled into even teams. */
+function teams(players: { id: string }[], opts: PartyOpts): { team: number[]; teamCount: number } {
   const n = players.length;
-  const style = opts.style ?? "classic";
-  // Team relay needs a guesser and at least one drawer per team.
-  const teamCount = style === "relay" ? Math.max(1, Math.min(opts.teams ?? 2, Math.floor(n / 2))) : 1;
+  if (opts.teamPick === "manual") {
+    const teamCount = Math.max(2, Math.min(4, opts.teams ?? 2));
+    const team = players.map((p) => (opts.teamOf?.[p.id] ?? -1) < teamCount ? (opts.teamOf?.[p.id] ?? -1) : -1);
+    const size = (t: number) => team.filter((x) => x === t).length;
+    // Anyone the host didn't place joins the smallest team.
+    team.forEach((t, i) => { if (t < 0) team[i] = [...Array(teamCount).keys()].reduce((a, b) => (size(b) < size(a) ? b : a)); });
+    const short = [...Array(teamCount).keys()].find((t) => size(t) < 2);
+    if (short !== undefined) fail(`Team ${TEAMS[short].name} needs at least 2 players (a guesser and a drawer)`);
+    return { team, teamCount };
+  }
+  // Each team needs its guessers plus at least one drawer.
+  const teamCount = Math.max(1, Math.min(opts.teams ?? 2, Math.floor(n / ((opts.guessers ?? 1) + 1)), Math.floor(n / 2)));
   const team = Array.from({ length: n }, () => 0);
   shuffle(players.map((_, i) => i)).forEach((seat, k) => (team[seat] = k % teamCount));
+  return { team, teamCount };
+}
+
+export function create(players: { id: string; name: string; bot: boolean }[], opts: PartyOpts): DrawState {
+  const style = opts.style ?? "classic";
+  const { team, teamCount } = style === "relay" ? teams(players, opts) : { team: players.map(() => 0), teamCount: 1 };
   return {
     ...newBase(players, opts), kind: "draw", phase: "reveal", style, team, teamCount, turnNo: 0, turnsOf: Array.from({ length: teamCount }, () => 0),
-    guesser: null, drawers: [], slot: 0, slots: 1, slotMs: opts.seconds * 1000, choices: [], word: "", level: "medium", category: "", used: [], reveal: [],
+    guessers: [], drawers: [], slot: 0, slots: 1, slotMs: opts.seconds * 1000, choices: [], word: "", level: "medium", category: "", used: [], reveal: [],
     guesses: [], solved: [], pts: [], since: 0, tried: {},
   };
 }
@@ -78,14 +98,16 @@ export function start(s: DrawState, now: number): GameEvent[] {
     s.round = Math.ceil(s.turnNo / s.teamCount);
     const members = membersOf(s, t);
     const k = s.turnsOf[t]++;
-    s.guesser = members[k % members.length];
-    const rest = members.filter((i) => i !== s.guesser);
-    // Start the drawing order somewhere new each time, so the same teammate doesn't always pick the word.
-    s.drawers = rest.map((_, i) => rest[(i + k) % rest.length]);
+    // Rotate through the team: this turn's guessers first, then its drawers; anyone after that sits out.
+    const g = Math.max(1, Math.min(s.opts.guessers ?? 1, members.length - 1));
+    const order = members.map((_, i) => members[(k * g + i) % members.length]);
+    s.guessers = order.slice(0, g);
+    const rest = order.slice(g);
+    s.drawers = rest.slice(0, s.opts.drawers ? Math.min(s.opts.drawers, rest.length) : rest.length);
     s.slots = Math.max(2, s.drawers.length * s.opts.laps);
   } else {
     s.round = Math.ceil(s.turnNo / n);
-    s.guesser = null;
+    s.guessers = [];
     s.drawers = [(s.turnNo - 1) % n];
     // One drawer, three turns of the set time: a letter is revealed at each step.
     s.slots = 3;
@@ -95,7 +117,7 @@ export function start(s: DrawState, now: number): GameEvent[] {
   s.ends = now + PICK_MS;
   const who = s.players[s.drawers[0]].name;
   const text = relay(s)
-    ? `Round ${s.round}: Team ${TEAMS[(s.turnNo - 1) % s.teamCount].name}. ${s.players[s.guesser!].name} guesses, ${who} picks the word.`
+    ? `Round ${s.round}: Team ${TEAMS[activeTeam(s)].name}. ${names(s, s.guessers)} ${s.guessers.length > 1 ? "guess" : "guesses"}, ${who} picks the word.`
     : `Round ${s.round}: ${who} is picking a word to draw.`;
   return [{ kind: "round", text }];
 }
@@ -131,8 +153,12 @@ function distance(a: string, b: string) {
   return prev[b.length];
 }
 
+const names = (s: DrawState, seats: number[]) => seats.map((i) => s.players[i].name).join(" and ");
+
 const canGuess = (s: DrawState, seat: number) =>
-  s.phase === "draw" && !s.solved.includes(seat) && (relay(s) ? seat === s.guesser : seat !== drawerOf(s));
+  !s.solved.includes(seat) &&
+  (s.phase === "draw" ? (relay(s) ? s.guessers.includes(seat) : seat !== drawerOf(s))
+  : s.phase === "steal" && s.team[seat] !== activeTeam(s));
 
 export function act(s: DrawState, seat: number, a: PartyAction, now: number): GameEvent[] {
   const ev: GameEvent[] = [];
@@ -146,7 +172,7 @@ export function act(s: DrawState, seat: number, a: PartyAction, now: number): Ga
     ev.push({ kind: "pass", seat, text: `${me.name} passed the pen` });
     nextSlot(s, now, ev);
   } else if (a.type === "guess") {
-    if (!canGuess(s, seat)) fail(relay(s) && s.phase === "draw" ? "Only the guesser can guess" : "You can't guess right now");
+    if (!canGuess(s, seat)) fail(relay(s) && s.phase === "draw" ? "Only this turn's guessers can guess" : "You can't guess right now");
     const text = a.text.trim().replace(/\s+/g, " ").slice(0, 40);
     if (!text) fail("Type a guess");
     s.tried[seat] = s.slot;
@@ -174,7 +200,14 @@ function begin(s: DrawState, i: number, now: number, ev: GameEvent[]) {
 
 function nextSlot(s: DrawState, now: number, ev: GameEvent[]) {
   s.slot += 1;
-  if (s.slot >= s.slots) return finish(s, now, ev);
+  if (s.slot >= s.slots) {
+    if (!stealable(s)) return finish(s, now, ev);
+    s.phase = "steal";
+    s.since = now;
+    s.ends = now + (s.opts.stealSeconds ?? 20) * 1000;
+    ev.push({ kind: "steal", text: `Time's up! The other teams can steal the word.` });
+    return;
+  }
   s.since = now;
   s.ends = now + s.slotMs;
   if (relay(s)) ev.push({ kind: "turn", seat: drawerOf(s), text: `The pen passes to ${s.players[drawerOf(s)].name}` });
@@ -189,6 +222,12 @@ function speed(s: DrawState, now: number) {
 function solve(s: DrawState, seat: number, now: number, ev: GameEvent[]): GameEvent[] {
   const bonus = Math.round((50 + 50 * speed(s, now)) * LEVEL_POINTS[s.level]);
   s.solved.push(seat);
+  if (s.phase === "steal") {
+    for (const i of membersOf(s, s.team[seat])) s.pts[i] += Math.round(30 * LEVEL_POINTS[s.level]);
+    ev.push({ kind: "solved", seat, text: `${s.players[seat].name} stole the word for Team ${TEAMS[s.team[seat]].name}!` });
+    finish(s, now, ev);
+    return ev;
+  }
   ev.push({ kind: "solved", seat, text: `${s.players[seat].name} guessed the word!` });
   if (relay(s)) {
     for (const i of membersOf(s, s.team[seat])) s.pts[i] += bonus;
@@ -203,9 +242,12 @@ function solve(s: DrawState, seat: number, now: number, ev: GameEvent[]): GameEv
 
 function finish(s: DrawState, now: number, ev: GameEvent[]) {
   const got = s.solved.length;
-  const text = relay(s)
-    ? `The word was ${s.word}. ${s.players[s.guesser!].name} ${got ? "got it" : "didn't get it"}${got ? `: Team ${TEAMS[s.team[s.guesser!]].name} scores` : ""}.`
-    : `The word was ${s.word}. ${got} of ${s.players.length - 1} guessed it.`;
+  const by = s.solved[0];
+  const text = !relay(s)
+    ? `The word was ${s.word}. ${got} of ${s.players.length - 1} guessed it.`
+    : !got ? `The word was ${s.word}. Nobody got it.`
+    : s.team[by] === activeTeam(s) ? `The word was ${s.word}. ${s.players[by].name} got it: Team ${TEAMS[s.team[by]].name} scores.`
+    : `The word was ${s.word}. ${s.players[by].name} stole it for Team ${TEAMS[s.team[by]].name}!`;
   closeRound(s, [...s.pts], text, now, ev, s.turnNo >= totalTurns(s));
 }
 
@@ -213,6 +255,7 @@ export function timeout(s: DrawState, now: number): GameEvent[] {
   const ev: GameEvent[] = [];
   if (s.phase === "pick") begin(s, randomInt(s.choices.length), now, ev);
   else if (s.phase === "draw") nextSlot(s, now, ev);
+  else if (s.phase === "steal") finish(s, now, ev);
   else if (s.phase === "reveal") return start(s, now);
   return ev;
 }
@@ -220,10 +263,10 @@ export function timeout(s: DrawState, now: number): GameEvent[] {
 export function botStep(s: DrawState, now: number): BotMove | null {
   const bot = (i: number) => s.players[i].bot;
   if (s.phase === "pick" && bot(s.drawers[0])) return { seat: s.drawers[0], action: { type: "word", index: randomInt(s.choices.length) }, at: now + 1500 };
-  if (s.phase !== "draw") return null;
+  if (s.phase !== "draw" && s.phase !== "steal") return null;
   // ponytail: bots can't draw, so a bot drawer holds the pen for half its turn, then passes it and the
   // hint letters do the work. Long enough that a person guessing still gets time to think.
-  if (bot(drawerOf(s))) return { seat: drawerOf(s), action: { type: "pass" }, at: s.since + Math.max(3000, s.slotMs / 2) };
+  if (s.phase === "draw" && bot(drawerOf(s))) return { seat: drawerOf(s), action: { type: "pass" }, at: s.since + Math.max(3000, s.slotMs / 2) };
   const seat = s.players.findIndex((_, i) => bot(i) && canGuess(s, i) && s.tried[i] !== s.slot);
   if (seat < 0) return null;
   // More likely to get it as the drawing (and the hints) build up.
@@ -250,7 +293,10 @@ export function view(s: DrawState, uid: string): DrawView {
   const id = (i: number | null) => (i === null || i < 0 ? null : s.players[i].id);
   const over = s.phase === "reveal" || s.phase === "over";
   const drawer = s.drawers.length ? drawerOf(s) : null;
-  const sees = over || (relay(s) ? me !== s.guesser : me === drawer || s.solved.includes(me));
+  // Classic: the drawer, and anyone who has guessed it. Relay: the drawers; the other teams if the host allows;
+  // never this turn's guessers, and not teammates sitting the turn out (they'd be tempted to help).
+  const sees = over || (!relay(s) ? me === drawer || s.solved.includes(me)
+    : s.team[me] === activeTeam(s) ? s.drawers.includes(me) : s.opts.showWord !== false);
   return {
     kind: "draw", style: s.style, phase: s.phase, round: s.round, rounds: s.opts.rounds, ends: s.ends,
     turn: s.phase === "pick" ? id(s.drawers[0]) : s.phase === "draw" ? id(drawer) : null,
@@ -259,8 +305,8 @@ export function view(s: DrawState, uid: string): DrawView {
     gained: Object.fromEntries(s.gained.map((g, i) => [s.players[i].id, g])),
     teams: relay(s) ? Array.from({ length: s.teamCount }, (_, t) => ({ members: membersOf(s, t).map((i) => s.players[i].id), score: membersOf(s, t).reduce((n, i) => n + s.players[i].score, 0) })) : [],
     yourTeam: relay(s) && me >= 0 ? s.team[me] : null,
-    active: relay(s) && s.turnNo ? (s.turnNo - 1) % s.teamCount : 0,
-    guesser: id(s.guesser), drawer: id(drawer), drawers: s.drawers.map((i) => s.players[i].id), slot: s.slot, slots: s.slots,
+    active: activeTeam(s),
+    guessers: s.guessers.map((i) => s.players[i].id), drawer: id(drawer), drawers: s.drawers.map((i) => s.players[i].id), slot: s.slot, slots: s.slots,
     word: s.word && sees ? s.word : null,
     hint: s.word ? hint(s) : "",
     category: s.word ? s.category : "",
