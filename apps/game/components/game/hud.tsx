@@ -301,7 +301,7 @@ export function SidePanel({ room }: { room: RoomView }) {
 export function LobbyPanel({ room, onRules }: { room: RoomView; onRules: () => void }) {
   const host = room.hostId === room.you;
   const set = (s: Partial<Pick<RoomView, "name" | "mode" | "isPublic" | "maxPlayers" | "theme">> & { rules?: Partial<Rules>; partyRules?: Partial<PartyOpts> }) =>
-    send({ t: "settings", settings: { ...s, rules: s.rules ? { ...room.rules, ...s.rules } : s.mode ? undefined : room.rules, partyRules: { ...room.partyRules, ...s.partyRules } } });
+    send({ t: "settings", settings: { ...s, rules: s.rules ? { ...room.rules, ...s.rules } : s.mode ? undefined : room.rules, partyRules: s.partyRules } });
   const wild = room.kind === "wildcard";
   const c = COPY[room.kind];
   const short = GAMES[room.kind].min - room.players.length;

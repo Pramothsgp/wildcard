@@ -59,3 +59,8 @@
 - What: in a table's lobby the top bar (Leave, End game, Rules, Sound) couldn't be clicked, so a player who opened or joined a table could only get out by starting the game or using the browser's back button.
 - Root cause: the lobby panel is a full-screen layer at z-20 drawn over the top bar at z-10.
 - Prevention: the top bar sits above every in-game layer except true dialogs (z-[25], under the role card, rules and modals). A full-screen layer must leave the top bar uncovered (top padding), not just look clear.
+
+## Quick changes to lobby options could undo each other
+- What: changing two party-game options (or two Draw it team picks) in quick succession could lose the first change.
+- Root cause: the lobby sent every option on each change, filled in from the last state the server had sent. A second change made before that state came back carried the old value of the first and overwrote it.
+- Prevention: clients send only what changed and the server merges it into the current settings (sanitizeParty falls back to the previous value per field; team picks merge per player, -1 = back to auto). Wildcard's rule toggles still send the full set, because sanitizeRules falls back to the mode's defaults rather than the current rules.
