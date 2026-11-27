@@ -54,3 +54,8 @@
 - What: if the host closed the browser without pressing Leave, the table stayed in "playing" (or "lobby") with no way to close it, and kept showing in the lobby list.
 - Root cause: only an explicit Leave by every player ended a table. A closed tab only disconnects, so the host stayed a member and the room never ended.
 - Prevention: every live table needs a way out that doesn't depend on one person coming back. The host can now end the game, and once the host is offline anyone at the table can.
+
+## No way out of a table's lobby without starting the game
+- What: in a table's lobby the top bar (Leave, End game, Rules, Sound) couldn't be clicked, so a player who opened or joined a table could only get out by starting the game or using the browser's back button.
+- Root cause: the lobby panel is a full-screen layer at z-20 drawn over the top bar at z-10.
+- Prevention: the top bar sits above every in-game layer except true dialogs (z-[25], under the role card, rules and modals). A full-screen layer must leave the top bar uncovered (top padding), not just look clear.
