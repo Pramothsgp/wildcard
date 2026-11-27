@@ -2,6 +2,7 @@ import { isGuest } from "@repo/auth";
 import { SignOutButton } from "@repo/auth/components";
 import { getSession } from "@repo/auth/next";
 import Link from "next/link";
+import { NameEdit } from "@/components/name-edit";
 import { COPY } from "@/game/copy";
 import { GAMES, type GameKind, kindOf, roomPath } from "@/game/party-meta";
 import { liveRoomFor } from "@/game/store";
@@ -21,14 +22,16 @@ export default async function Home() {
           <h1 className="bg-gradient-to-r from-amber-300 via-pink-400 to-sky-400 bg-clip-text text-4xl font-black text-transparent sm:text-5xl">GAME NIGHT</h1>
           <p className="text-white/60">Pick a game, open a table, send your friends the code.</p>
         </div>
-        {/* No sign-out for guests: they'd lose their guest player for good. */}
-        {session && !isGuest(session.user) ? <SignOutButton /> : (
-          <div className="flex flex-wrap items-center gap-2">
-            {session && <span className="text-sm text-white/60">Playing as {session.user.name} (guest)</span>}
-            <Link href="/signup" className={`${link} bg-amber-400 text-black hover:bg-amber-300`}>Create account</Link>
-            <Link href="/signin" className={`${link} bg-white/10 hover:bg-white/20`}>{session ? "Sign in" : "Sign in or play as guest"}</Link>
-          </div>
-        )}
+        <div className="flex flex-wrap items-center gap-3">
+          {session && <NameEdit name={session.user.name} guest={isGuest(session.user)} />}
+          {/* No sign-out for guests: they'd lose their guest player for good. */}
+          {session && !isGuest(session.user) ? <SignOutButton /> : (
+            <>
+              <Link href="/signup" className={`${link} bg-amber-400 text-black hover:bg-amber-300`}>Create account</Link>
+              <Link href="/signin" className={`${link} bg-white/10 hover:bg-white/20`}>{session ? "Sign in" : "Sign in or play as guest"}</Link>
+            </>
+          )}
+        </div>
       </header>
 
       {live && (

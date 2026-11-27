@@ -93,6 +93,8 @@ export type ClientMsg =
   | { t: "create"; settings: Partial<RoomSettings> }
   | { t: "join"; code: string }
   | { t: "leave" }
+  /** "I just changed my name": the server reads it from the account, it isn't sent. */
+  | { t: "rename" }
   | { t: "end" }
   | { t: "settings"; settings: Partial<RoomSettings> }
   | { t: "addBot" }

@@ -1,7 +1,9 @@
+import { isGuest } from "@repo/auth";
 import { requireSession } from "@repo/auth/next";
 import Link from "next/link";
 import { GameNav } from "@/components/game-nav";
 import { Lobby } from "@/components/lobby";
+import { NameEdit } from "@/components/name-edit";
 import { COPY } from "@/game/copy";
 import { ACHIEVEMENTS, type AchievementId } from "@/game/help";
 import { GAMES, kindOf, roomPath } from "@/game/party-meta";
@@ -28,6 +30,7 @@ export default async function GameHome({ params }: { params: Promise<{ game: str
   return (
     <main className="mx-auto max-w-6xl space-y-6 px-4 py-8 text-white">
       <GameNav kind={kind} />
+      <NameEdit name={session.user.name} guest={isGuest(session.user)} />
       <section className={`space-y-5 rounded-3xl bg-gradient-to-br p-6 ring-1 sm:p-8 ${c.look}`}>
         <div className="space-y-1">
           <p className="text-2xl font-black sm:text-3xl">{c.tagline}</p>

@@ -145,6 +145,7 @@ function handle(c: Conn, m: ClientMsg) {
     }
   }
 
+  if (m.t === "rename") return void rename(uid).catch(logErr);
   need(r, "Join a table first");
   const room = r!;
   switch (m.t) {
@@ -437,6 +438,20 @@ function leave(room: Room, user: { id: string; name: string }) {
   }
   if (room.s.hostId === uid) room.s.hostId = room.s.members.find((m) => !m.bot && !m.left)?.id ?? uid;
   commit(room, [{ kind: "leave", text: `${user.name} left${room.status === "playing" ? " (autopilot takes over)" : ""}`, seat: -1 }], uid);
+}
+
+/** A player changed their name: use it on their connections and at the table they're seated at. */
+async function rename(uid: string) {
+  const name = await store.nameOf(uid);
+  if (!name) return;
+  for (const c of conns) if (c.user.id === uid) c.user.name = name;
+  const room = liveRoomOf(uid);
+  const member = room?.s.members.find((m) => m.id === uid);
+  if (!room || !member || member.name === name) return;
+  const old = member.name;
+  member.name = name;
+  for (const p of [...(room.s.game?.seats ?? []), ...(room.s.party?.players ?? [])]) if (p.id === uid) p.name = name;
+  commit(room, [{ kind: "rename", text: `${old} is now ${name}`, seat: -1 }], uid);
 }
 
 /** Leaving one lobby to join another is fine; leaving a running game is not done silently. */
