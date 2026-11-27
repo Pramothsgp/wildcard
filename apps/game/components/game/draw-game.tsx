@@ -8,6 +8,7 @@ import { Clock, RoundEnd, TextMove, act, glass, nameOf } from "./party";
 import { Sketch } from "./sketch";
 
 const PICK_MS = 15_000;
+const LEVEL_LOOK = { easy: "bg-emerald-900/30 text-emerald-900", medium: "bg-sky-900/30 text-sky-900", hard: "bg-red-900/30 text-red-900" };
 
 export function DrawGame({ room }: { room: RoomView }) {
   const p = room.party?.kind === "draw" ? room.party : null;
@@ -49,7 +50,7 @@ function WordBar({ room, p }: { room: RoomView; p: DrawView }) {
   return (
     <div className={`${glass} flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-2`}>
       <div className="min-w-0">
-        <p className="text-xs uppercase tracking-widest text-white/55">{label}{p.category && !over ? ` · ${p.category}` : ""}</p>
+        <p className="text-xs uppercase tracking-widest text-white/55">{label}{p.category && !over ? ` · ${p.category}` : ""}{p.level && !over ? ` · ${p.level}` : ""}</p>
         {p.phase !== "pick" && (
           <p className={`font-mono text-2xl font-black tracking-[0.25em] ${p.word ? "text-amber-200" : "text-white"}`} aria-label={p.word ?? `${p.hint.length} letters: ${p.hint.replace(/_/g, " blank ")}`}>
             {[...shown].map((ch, i) => <span key={i} className={ch === " " ? "inline-block w-4" : undefined}>{ch}</span>)}
@@ -81,7 +82,11 @@ function Moves({ room, p }: { room: RoomView; p: DrawView }) {
   if (p.phase === "pick") {
     body = p.choices ? (
       <div className="flex flex-wrap justify-center gap-2">
-        {p.choices.map((w, i) => <Btn key={w} kbd={String(i + 1)} className="text-base" onClick={() => act({ type: "word", index: i })}>{w}</Btn>)}
+        {p.choices.map((c, i) => (
+          <Btn key={c.word} kbd={String(i + 1)} className="text-base" onClick={() => act({ type: "word", index: i })}>
+            {c.word}<span className={`ml-2 rounded px-1.5 py-0.5 text-[10px] font-black uppercase ${LEVEL_LOOK[c.level]}`}>{c.level}</span>
+          </Btn>
+        ))}
       </div>
     ) : <p className="text-center text-sm text-white/70">Get ready{p.guesser === room.you ? ": you're guessing this one" : ""}...</p>;
   } else if (p.canGuess) {

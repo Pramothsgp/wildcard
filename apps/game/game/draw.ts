@@ -4,8 +4,15 @@
 import { randomInt } from "node:crypto";
 import { type GameEvent, shuffle } from "./engine.ts";
 import { type Base, type BotMove, closeRound, fail, newBase, norm, pickOne, seatOf } from "./party-core.ts";
+import { DRAW_WORDS, type Level } from "./draw-words.ts";
 import { type DrawStyle, type DrawView, PACKS, type PackId, type PartyAction, type PartyOpts, TEAMS } from "./party-meta.ts";
 import { WORDS } from "./words.ts";
+
+type Choice = { word: string; level: Level; category: string };
+/** Harder words score more. */
+const LEVEL_POINTS: Record<Level, number> = { easy: 0.8, medium: 1, hard: 1.3 };
+const LEVEL_OF = new Map(Object.entries(DRAW_WORDS).flatMap(([l, ws]) => ws.map((w) => [norm(w), l as Level])));
+const EVERYDAY = "Everyday things";
 
 export type DrawState = Base & {
   kind: "draw";
@@ -24,9 +31,10 @@ export type DrawState = Base & {
   slot: number;
   slots: number;
   slotMs: number;
-  choices: { pack: PackId; word: string }[];
-  pack: PackId;
+  choices: Choice[];
   word: string;
+  level: Level;
+  category: string;
   used: string[];
   /** Letter positions in the order they are revealed as hints. */
   reveal: number[];
@@ -55,7 +63,7 @@ export function create(players: { id: string; name: string; bot: boolean }[], op
   shuffle(players.map((_, i) => i)).forEach((seat, k) => (team[seat] = k % teamCount));
   return {
     ...newBase(players, opts), kind: "draw", phase: "reveal", style, team, teamCount, turnNo: 0, turnsOf: Array.from({ length: teamCount }, () => 0),
-    guesser: null, drawers: [], slot: 0, slots: 1, slotMs: opts.seconds * 1000, choices: [], pack: "food", word: "", used: [], reveal: [],
+    guesser: null, drawers: [], slot: 0, slots: 1, slotMs: opts.seconds * 1000, choices: [], word: "", level: "medium", category: "", used: [], reveal: [],
     guesses: [], solved: [], pts: [], since: 0, tried: {},
   };
 }
@@ -92,13 +100,24 @@ export function start(s: DrawState, now: number): GameEvent[] {
   return [{ kind: "round", text }];
 }
 
-/** Three words not played yet this match. */
-function offer(s: DrawState) {
+/** Every word the table can get: one pack's words, or (mixed) the everyday list plus every pack. */
+function pool(s: DrawState): Choice[] {
   const packs = s.opts.pack === "mixed" ? (Object.keys(WORDS) as PackId[]) : [s.opts.pack];
-  let pool = packs.flatMap((pack) => WORDS[pack].map((e) => ({ pack, word: e.word })));
-  const fresh = pool.filter((w) => !s.used.includes(w.word));
-  if (fresh.length >= 3) pool = fresh;
-  return shuffle(pool).slice(0, 3);
+  const themed = packs.flatMap((pack) => WORDS[pack].map((e) => ({ word: e.word, level: LEVEL_OF.get(norm(e.word)) ?? "medium", category: PACKS[pack] })));
+  if (s.opts.pack !== "mixed") return themed;
+  const seen = new Set(themed.map((c) => norm(c.word)));
+  const everyday = Object.entries(DRAW_WORDS).flatMap(([level, ws]) => ws.filter((w) => !seen.has(norm(w))).map((word) => ({ word, level: level as Level, category: EVERYDAY })));
+  return [...themed, ...everyday];
+}
+
+/** Three words not played yet this match: an easy, a medium and a hard one where the pack has them. */
+function offer(s: DrawState): Choice[] {
+  let all = pool(s);
+  const fresh = all.filter((c) => !s.used.includes(c.word));
+  if (fresh.length >= 3) all = fresh;
+  const picks = (["easy", "medium", "hard"] as Level[]).flatMap((l) => pickOne(all.filter((c) => c.level === l)) ?? []);
+  for (const c of shuffle(all)) if (picks.length < 3 && !picks.includes(c)) picks.push(c);
+  return picks;
 }
 
 /** Two words this close count as "close": a typo or two. */
@@ -143,15 +162,14 @@ export function act(s: DrawState, seat: number, a: PartyAction, now: number): Ga
 
 function begin(s: DrawState, i: number, now: number, ev: GameEvent[]) {
   const c = s.choices[i];
-  s.word = c.word;
-  s.pack = c.pack;
+  Object.assign(s, { word: c.word, level: c.level, category: c.category });
   s.used.push(c.word);
   s.reveal = shuffle([...c.word].flatMap((ch, k) => (/[a-z0-9]/i.test(ch) ? [k] : [])));
   s.phase = "draw";
   s.slot = 0;
   s.since = now;
   s.ends = now + s.slotMs;
-  ev.push({ kind: "draw", seat: drawerOf(s), text: `${s.players[drawerOf(s)].name} is drawing (${PACKS[s.pack]}, ${c.word.length} letters)` });
+  ev.push({ kind: "draw", seat: drawerOf(s), text: `${s.players[drawerOf(s)].name} is drawing (${c.category}, ${c.level}, ${c.word.length} letters)` });
 }
 
 function nextSlot(s: DrawState, now: number, ev: GameEvent[]) {
@@ -169,7 +187,7 @@ function speed(s: DrawState, now: number) {
 }
 
 function solve(s: DrawState, seat: number, now: number, ev: GameEvent[]): GameEvent[] {
-  const bonus = 50 + Math.round(50 * speed(s, now));
+  const bonus = Math.round((50 + 50 * speed(s, now)) * LEVEL_POINTS[s.level]);
   s.solved.push(seat);
   ev.push({ kind: "solved", seat, text: `${s.players[seat].name} guessed the word!` });
   if (relay(s)) {
@@ -210,7 +228,7 @@ export function botStep(s: DrawState, now: number): BotMove | null {
   if (seat < 0) return null;
   // More likely to get it as the drawing (and the hints) build up.
   const right = randomInt(100) < Math.min(80, 15 + 25 * s.slot);
-  const wrong = pickOne(WORDS[s.pack].map((e) => e.word).filter((w) => w !== s.word)) ?? "?";
+  const wrong = pickOne(pool(s).map((c) => c.word).filter((w) => w !== s.word)) ?? "?";
   return { seat, action: { type: "guess", text: right ? s.word : wrong }, at: s.since + Math.min(s.slotMs * 0.6, 3000 + seat * 900) };
 }
 
@@ -245,8 +263,9 @@ export function view(s: DrawState, uid: string): DrawView {
     guesser: id(s.guesser), drawer: id(drawer), drawers: s.drawers.map((i) => s.players[i].id), slot: s.slot, slots: s.slots,
     word: s.word && sees ? s.word : null,
     hint: s.word ? hint(s) : "",
-    category: s.word ? PACKS[s.pack] : "",
-    choices: s.phase === "pick" && me === s.drawers[0] ? s.choices.map((c) => c.word) : null,
+    category: s.word ? s.category : "",
+    level: s.word ? s.level : null,
+    choices: s.phase === "pick" && me === s.drawers[0] ? s.choices.map((c) => ({ word: c.word, level: c.level })) : null,
     guesses: s.guesses.map((g) => ({ id: s.players[g.seat].id, text: g.text, close: g.close && g.seat === me })),
     solved: s.solved.map((i) => s.players[i].id),
     canGuess: me >= 0 && canGuess(s, me),

@@ -40,7 +40,7 @@ export function PartyOptions({ room, host, onChange }: { room: RoomView; host: b
       {room.kind === "draw" && (
         <>
           {select("How to play", o.style ?? "classic", Object.entries(DRAW_STYLES), "style", "Classic: one draws, all guess. Relay: teammates draw for one guesser.")}
-          {select("Word pack", o.pack, Object.entries(PACKS), "pack", "Where the words come from.")}
+          {select("Word pack", o.pack, Object.entries(PACKS), "pack", "Mixed adds over 300 everyday things to draw.")}
           {o.style === "relay" && select("Teams", o.teams ?? 2, range(2, 4), "teams", "Needs 2 players per team, or there are fewer teams.")}
           {o.style === "relay" && select("Turns per drawer", o.laps, range(1, 3), "laps", "How many times the pen goes round the team per word.")}
         </>

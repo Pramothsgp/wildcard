@@ -37,7 +37,7 @@ test("draw classic: drawer picks a word, only they see it, others guess for poin
   actParty(s, b, { type: "guess", text: s.word }, 15_000);
   // Everyone guessed: the turn ends (each of the 3 players draws once a round). Faster scores more; drawer +10 per solver.
   expect(s.phase).toBe("reveal");
-  expect(s.players[a].score).toBe(100);
+  expect(s.players[a].score).toBe(Math.round(100 * { easy: 0.8, medium: 1, hard: 1.3 }[s.level]));
   expect(s.players[b].score).toBeLessThan(100);
   expect(s.players[drawer].score).toBe(20);
 });
@@ -59,6 +59,21 @@ test("draw classic: close guesses are flagged for the guesser only, and hints gr
   timeoutParty(s, 30_000); // three steps of time, nobody got it
   expect(s.phase).toBe("reveal");
   expect(s.players.every((p) => p.score === 0)).toBe(true);
+});
+
+test("draw: each pick offers an easy, a medium and a hard word, none repeated in a match", () => {
+  const s = game(3);
+  expect(s.choices.map((c) => c.level).toSorted()).toEqual(["easy", "hard", "medium"]);
+  const seen = new Set<string>();
+  for (let k = 0; k < 3; k++) {
+    for (const c of s.choices) expect(seen.has(c.word)).toBe(false);
+    timeoutParty(s, 0); // picks one at random
+    seen.add(s.word);
+    while (s.phase === "draw") timeoutParty(s, 0);
+    if (s.phase === "reveal") startParty(s, 0);
+  }
+  const themed = game(3, { pack: "animals" });
+  expect(themed.choices.every((c) => c.category === "Animals")).toBe(true);
 });
 
 test("draw relay: one guesser per team; everyone else sees the word; the pen passes in turns", () => {
