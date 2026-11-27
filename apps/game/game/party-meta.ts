@@ -2,7 +2,7 @@
 // No server imports, so the browser can use it too.
 
 /** Every game seats up to this many. */
-export const MAX_PLAYERS = 20;
+export const MAX_PLAYERS = 25;
 
 export const GAMES = {
   wildcard: {
@@ -218,7 +218,7 @@ export const PARTY_RULES: Record<PartyKind, { title: string; text: string }[]> =
     { title: "Goal", text: "Each player secretly gets a role. The village wins when every wolf is out. The wolves win when they equal or outnumber everyone else." },
     { title: "Night", text: "Wolves pick someone to remove. The seer checks one player. The healer protects one player. Everyone else waits." },
     { title: "Day", text: "Find out who was lost in the night, talk it over in chat, then vote to send someone away (or skip). Most votes goes; a tie or more skips sends nobody. Their role is shown." },
-    { title: "Roles", text: "Wolf, Seer, Healer and Villager. 1 wolf up to 6 players, then about one wolf for every 4 or 5 players (4 wolves at 20). A healer joins from 5 players." },
+    { title: "Roles", text: "Wolf, Seer, Healer and Villager. 1 wolf up to 6 players, then about one wolf for every 4 or 5 players (4 wolves at 20, 6 at 25). A healer joins from 5 players." },
     { title: "Fair play", text: "Players who are out can still read and type in chat. Please keep quiet about what you know." },
     { title: "Scoring", text: "Everyone on the winning side scores +30, and +10 more if still in at the end. The match winner gets +100 on the leaderboard." },
   ],

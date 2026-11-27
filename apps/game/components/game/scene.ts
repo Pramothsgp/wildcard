@@ -353,7 +353,8 @@ export class TableScene {
       s.avatar.hidden = !p.avatar;
       if (p.avatar) s.avatar.src = avatarUrl(p.avatar);
       const turn = g ? g.turn === p.id && g.phase === "playing" : !!view.party && view.party.turn === p.id;
-      s.el.className = `seat-tag${turn ? " is-turn" : ""}${p.out ? " is-out" : ""}${!p.connected ? " is-away" : ""}`;
+      // Big tables get smaller tags so neighbours don't cover each other.
+      s.el.className = `seat-tag${view.players.length > 14 ? " is-compact" : ""}${turn ? " is-turn" : ""}${p.out ? " is-out" : ""}${!p.connected ? " is-away" : ""}`;
       s.info.innerHTML = "";
       const name = document.createElement("b");
       name.textContent = p.id === view.you ? "You" : p.name;
