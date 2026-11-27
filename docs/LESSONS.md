@@ -49,3 +49,8 @@
 - What: at 6+ players there can be several imposters, but each player could only vote for one suspect and only one player could be accused, so the crew could never catch them all.
 - Root cause: the vote and the accusation were written for a single imposter (one target per voter, one accused seat).
 - Prevention: any rule that depends on the imposter count reads it from `s.imposters.length`. Each player now picks one suspect per imposter, the top vote-getters (one per imposter) are accused, and the crew wins only if every imposter is accused.
+
+## A table stayed open forever when the host closed the tab
+- What: if the host closed the browser without pressing Leave, the table stayed in "playing" (or "lobby") with no way to close it, and kept showing in the lobby list.
+- Root cause: only an explicit Leave by every player ended a table. A closed tab only disconnects, so the host stayed a member and the room never ended.
+- Prevention: every live table needs a way out that doesn't depend on one person coming back. The host can now end the game, and once the host is offline anyone at the table can.

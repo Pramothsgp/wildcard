@@ -95,6 +95,10 @@ export function TopBar({ room, status, onRules }: { room: RoomView; status: stri
   const [copied, setCopied] = useState(false);
   const [muted, setM] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [ending, setEnding] = useState(false);
+  // Matches the server: the host, or anyone once the host has gone offline.
+  const canEnd = (room.status === "lobby" || room.status === "playing")
+    && (room.hostId === room.you || room.players.find((p) => p.id === room.hostId)?.connected === false);
   useEffect(() => {
     setM(isMuted());
   }, []);
@@ -130,6 +134,7 @@ export function TopBar({ room, status, onRules }: { room: RoomView; status: stri
         <Btn variant="ghost" aria-label={muted ? "Unmute" : "Mute"} onClick={() => { setMuted(!muted); setM(!muted); }}>
           {muted ? "Sound off" : "Sound on"}
         </Btn>
+        {canEnd && <Btn variant="ghost" onClick={() => setEnding(true)}>End game</Btn>}
         <Btn
           variant="ghost"
           onClick={() => {
@@ -150,6 +155,17 @@ export function TopBar({ room, status, onRules }: { room: RoomView; status: stri
           danger
           onCancel={() => setLeaving(false)}
           onConfirm={() => { setLeaving(false); send({ t: "leave" }); }}
+        />
+      )}
+      {ending && (
+        <ConfirmModal
+          title="End the game for everyone?"
+          message={room.hostId === room.you ? "The table closes for all players. The game so far is saved in history." : "The host is offline. Ending closes the table for all players. The game so far is saved in history."}
+          confirmLabel="End game"
+          cancelLabel="Keep playing"
+          danger
+          onCancel={() => setEnding(false)}
+          onConfirm={() => { setEnding(false); send({ t: "end" }); }}
         />
       )}
     </div>

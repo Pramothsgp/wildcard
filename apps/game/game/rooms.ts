@@ -144,6 +144,14 @@ function handle(c: Conn, m: ClientMsg) {
   switch (m.t) {
     case "leave":
       return leave(room, c.user);
+    case "end": {
+      // The host can end the table. If the host has gone offline (closed the tab without leaving),
+      // anyone at the table can, so it doesn't stay open forever.
+      need(isHost || !connected(room, room.s.hostId), "Only the host can end the game");
+      need(room.status === "lobby" || room.status === "playing", "This game is already over");
+      room.status = "abandoned";
+      return commit(room, [{ kind: "end", text: `${c.user.name} ended the game`, seat: -1 }], uid);
+    }
     case "chat": {
       const text = String(m.text ?? "").trim().slice(0, 200);
       if (!text || Date.now() - c.lastChat < 700) return;

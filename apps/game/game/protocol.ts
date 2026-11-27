@@ -92,6 +92,7 @@ export type ClientMsg =
   | { t: "create"; settings: Partial<RoomSettings> }
   | { t: "join"; code: string }
   | { t: "leave" }
+  | { t: "end" }
   | { t: "settings"; settings: Partial<RoomSettings> }
   | { t: "addBot" }
   | { t: "kick"; id: string }
